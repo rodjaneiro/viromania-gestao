@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { google } from "googleapis";
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
   if (!savedState || savedState !== state) {
     return NextResponse.json(
-      { error: "Estado de segurança OAuth inválido." },
+      { error: "Estado OAuth inválido ou expirado." },
       { status: 400 }
     );
   }
@@ -54,32 +54,49 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  );
-
   try {
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+
     const { tokens } = await oauth2Client.getToken(code);
 
-    oauth2Client.setCredentials(tokens);
+    if (!tokens.access_token) {
+      throw new Error("Google não retornou access_token.");
+    }
 
-    const oauth2 = google.oauth2({
-      version: "v2",
-      auth: oauth2Client,
-    });
+    let googleEmail: string | null = null;
 
-    const { data: googleUser } = await oauth2.userinfo.get();
+    try {
+      const tokenInfo = await oauth2Client.getTokenInfo(tokens.access_token);
+      googleEmail = tokenInfo.data.email ?? null;
+    } catch (error) {
+      console.error("Não foi possível obter email Google:", error);
+    }
+
+    const { data: conexaoAtual } = await supabase
+      .from("google_calendar_connections")
+      .select("refresh_token")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    const refreshToken =
+      tokens.refresh_token ?? conexaoAtual?.refresh_token ?? null;
+
+    if (!refreshToken) {
+      throw new Error("Google não retornou refresh_token.");
+    }
 
     const { error: saveError } = await supabase
       .from("google_calendar_connections")
       .upsert(
         {
           user_id: user.id,
-          google_email: googleUser.email ?? null,
-          access_token: tokens.access_token ?? null,
-          refresh_token: tokens.refresh_token ?? null,
+          google_email: googleEmail,
+          access_token: tokens.access_token,
+          refresh_token: refreshToken,
           token_expiry: tokens.expiry_date
             ? new Date(tokens.expiry_date).toISOString()
             : null,
@@ -91,22 +108,20 @@ export async function GET(request: NextRequest) {
       );
 
     if (saveError) {
-      console.error("Erro ao salvar conexão Google:", saveError);
-
-      return NextResponse.json(
-        { error: "Não foi possível salvar a conexão com o Google." },
-        { status: 500 }
-      );
+      console.error("Erro Supabase:", saveError);
+      throw new Error("Não foi possível salvar a conexão Google.");
     }
 
     return NextResponse.redirect(
       new URL("/eventos?google=conectado", request.url)
     );
   } catch (error) {
-    console.error("Erro no OAuth Google:", error);
+    console.error("ERRO GOOGLE OAUTH:", error);
 
     return NextResponse.json(
-      { error: "Não foi possível conectar ao Google Agenda." },
+      {
+        error: "Não foi possível conectar ao Google Agenda.",
+      },
       { status: 500 }
     );
   }
