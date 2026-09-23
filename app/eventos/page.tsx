@@ -1019,6 +1019,28 @@ export default function EventosPage() {
         }
       }
 
+      try {
+        const googleResponse = await fetch("/api/google/calendar", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            eventId: eventoCriado.id,
+          }),
+        });
+
+        const googleResult = await googleResponse.json();
+
+        if (!googleResponse.ok) {
+          console.error("Erro Google Agenda:", googleResult);
+        } else {
+          console.log("Google Agenda:", googleResult);
+        }
+      } catch (googleError) {
+        console.error("Erro ao sincronizar Google Agenda:", googleError);
+      }
+
       alert("Evento e recebimentos cadastrados com sucesso!");
       setMostrarFormulario(false);
       await carregarEventos();
