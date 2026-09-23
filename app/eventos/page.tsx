@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -1018,7 +1018,19 @@ export default function EventosPage() {
           }
         }
       }
-
+try {
+  await fetch("/api/google/calendar", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      eventId: eventoCriado.id,
+    }),
+  });
+} catch (error) {
+  console.error("Erro ao sincronizar com Google Agenda:", error);
+}
       alert("Evento e recebimentos cadastrados com sucesso!");
       setMostrarFormulario(false);
       await carregarEventos();
