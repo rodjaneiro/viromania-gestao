@@ -1018,19 +1018,7 @@ export default function EventosPage() {
           }
         }
       }
-try {
-  await fetch("/api/google/calendar", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      eventId: eventoCriado.id,
-    }),
-  });
-} catch (error) {
-  console.error("Erro ao sincronizar com Google Agenda:", error);
-}
+
       alert("Evento e recebimentos cadastrados com sucesso!");
       setMostrarFormulario(false);
       await carregarEventos();
@@ -1688,12 +1676,21 @@ async function abrirFechamentoEvento(evento: Evento) {
             </p>
           </div>
 
-          <button
-            onClick={novoEvento}
-            className="rounded-lg bg-slate-800 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-slate-700"
-          >
-            + Novo evento
-          </button>
+          <div className="flex gap-3">
+            <a
+              href="/api/google/auth"
+              className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-red-700"
+            >
+              Conectar Google Agenda
+            </a>
+
+            <button
+              onClick={novoEvento}
+              className="rounded-lg bg-slate-800 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-slate-700"
+            >
+              + Novo evento
+            </button>
+          </div>
         </div>
 
         {/* RECURRÊNCIA AUTOMÁTICA */}
