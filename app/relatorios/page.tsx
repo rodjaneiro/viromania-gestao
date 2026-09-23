@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -392,7 +392,7 @@ export default function RelatoriosPage() {
 
         setMensagem(
           erros[0].error?.message ||
-            "Erro ao carregar relatÃ³rio."
+            "Erro ao carregar relatório."
         );
       }
 
@@ -487,7 +487,7 @@ setFechamentos(
       );
 
       /*
-       * PRESENÃ‡AS DOS ENSAIOS
+       * PRESENÇAS DOS ENSAIOS
        */
 
       const ensaioIds =
@@ -522,7 +522,7 @@ setFechamentos(
       }
 
       /*
-       * PREMIAÃ‡Ã•ES
+       * PREMIAÇÕES
        */
 
       const bonusIds =
@@ -566,7 +566,7 @@ setFechamentos(
 
       setMensagem(
         error.message ||
-          "Erro ao carregar relatÃ³rio."
+          "Erro ao carregar relatório."
       );
     } finally {
       setCarregando(false);
@@ -679,7 +679,7 @@ setFechamentos(
   );
 
   /*
-   * MÃšSICOS
+   * MÚSICOS
    */
 
   const musicosDoPeriodo =
@@ -781,7 +781,7 @@ setFechamentos(
     totalDespesas;
 
   /*
-   * DISTRIBUIÃ‡ÃƒO
+   * DISTRIBUIÇÃO
    */
 
   const distribuicao =
@@ -831,7 +831,7 @@ setFechamentos(
     }, [fechamentos]);
 
   /*
-   * LINHAS DOS MÃšSICOS
+   * LINHAS DOS MÚSICOS
    */
 
   const linhasMusicos =
@@ -853,7 +853,7 @@ setFechamentos(
       >();
 
       /*
-       * Inicializa todos os mÃºsicos
+       * Inicializa todos os músicos
        */
 
       for (const musico of musicos) {
@@ -988,7 +988,7 @@ setFechamentos(
       }
 
       /*
-       * BONIFICAÃ‡Ã•ES
+       * BONIFICAÇÕES
        */
 
       for (const premio of premiosBonificacao) {
@@ -1048,7 +1048,7 @@ setFechamentos(
                 (musico) =>
                   musico.id === id
               )?.name ||
-              "MÃºsico",
+              "Músico",
             eventos:
               linha.eventos,
             ensaios:
@@ -1103,7 +1103,7 @@ setFechamentos(
     ]);
 
   /*
-   * TOTAIS DE BONIFICAÃ‡ÃƒO
+   * TOTAIS DE BONIFICAÇÃO
    */
 
   const totalBonificacoesPagas =
@@ -1191,7 +1191,7 @@ setFechamentos(
     );
 
   /*
-   * FREQUÃŠNCIA
+   * FREQUÊNCIA
    */
 
   const maiorParticipacao =
@@ -1283,25 +1283,25 @@ setFechamentos(
     bonificacoes.length;
 
   return (
-    <main className="min-h-screen bg-slate-100 p-3 sm:p-6 text-slate-800">
-      <div className="mx-auto w-full max-w-7xl">
+    <main className="min-h-screen bg-slate-100 p-6 text-slate-800">
+      <div className="mx-auto max-w-7xl">
 
-        {/* CABEÃ‡ALHO */}
+        {/* CABEÇALHO */}
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:p-4">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
 
           <div>
             <p className="text-sm font-semibold text-slate-500">
-              VIROMANIA GESTÃƒO
+              VIROMANIA GESTÃO
             </p>
 
-            <h1 className="mt-1 text-base font-bold sm:text-lg sm:text-xl sm:text-xl sm:text-2xl sm:text-3xl">
-              RelatÃ³rios
+            <h1 className="mt-1 text-3xl font-bold">
+              Relatórios
             </h1>
 
             <p className="mt-1 text-sm text-slate-500">
-              VisÃ£o financeira, frequÃªncia,
-              pagamentos e bonificaÃ§Ãµes.
+              Visão financeira, frequência,
+              pagamentos e bonificações.
             </p>
           </div>
 
@@ -1309,14 +1309,14 @@ setFechamentos(
 
             <button
               onClick={carregarDados}
-              className="rounded-lg bg-slate-800 px-3 sm:px-5 py-3 text-sm font-semibold text-white"
+              className="rounded-lg bg-slate-800 px-5 py-3 text-sm font-semibold text-white"
             >
-              Atualizar relatÃ³rio
+              Atualizar relatório
             </button>
 
             <a
               href="/"
-              className="rounded-lg border border-slate-300 bg-white px-3 sm:px-5 py-3 text-sm font-semibold"
+              className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold"
             >
               Voltar
             </a>
@@ -1327,13 +1327,13 @@ setFechamentos(
 
         {/* FILTRO */}
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
+        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
 
-          <div className="flex flex-wrap items-end gap-3 sm:p-4">
+          <div className="flex flex-wrap items-end gap-4">
 
             <div>
               <label className="mb-1 block text-sm font-semibold">
-                PerÃ­odo
+                Período
               </label>
 
               <select
@@ -1349,7 +1349,7 @@ setFechamentos(
                 className="rounded-lg border border-slate-300 px-3 py-3"
               >
                 <option value="mes">
-                  MÃªs
+                  Mês
                 </option>
 
                 <option value="ano">
@@ -1365,7 +1365,7 @@ setFechamentos(
             {modo === "mes" && (
               <div>
                 <label className="mb-1 block text-sm font-semibold">
-                  MÃªs
+                  Mês
                 </label>
 
                 <input
@@ -1401,7 +1401,7 @@ setFechamentos(
               <>
                 <div>
                   <label className="mb-1 block text-sm font-semibold">
-                    InÃ­cio
+                    Início
                   </label>
 
                   <input
@@ -1439,7 +1439,7 @@ setFechamentos(
               {dataBR(
                 periodo.inicio
               )}{" "}
-              atÃ©{" "}
+              até{" "}
               {dataBR(
                 periodo.fim
               )}
@@ -1450,20 +1450,20 @@ setFechamentos(
         </section>
 
         {mensagem && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3 sm:p-4 font-semibold text-red-700">
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 font-semibold text-red-700">
             {mensagem}
           </div>
         )}
 
         {carregando ? (
           <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
-            Carregando relatÃ³rio...
+            Carregando relatório...
           </div>
         ) : (
           <>
             {/* RESUMO FINANCEIRO */}
 
-            <section className="mb-6 grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-2 xl:grid-cols-5">
+            <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
 
               <Card
                 titulo="Receitas confirmadas"
@@ -1487,14 +1487,14 @@ setFechamentos(
               />
 
               <Card
-                titulo="CachÃªs"
+                titulo="Cachês"
                 valor={moeda(
                   totalMusicos
                 )}
               />
 
               <Card
-                titulo="Resultado lÃ­quido"
+                titulo="Resultado líquido"
                 valor={moeda(
                   resultadoLiquido
                 )}
@@ -1505,17 +1505,17 @@ setFechamentos(
 
             {/* PAGAMENTOS */}
 
-            <section className="mb-6 grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-3">
+            <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
 
               <Card
-                titulo="CachÃªs pagos"
+                titulo="Cachês pagos"
                 valor={moeda(
                   totalMusicosPagos
                 )}
               />
 
               <Card
-                titulo="CachÃªs pendentes"
+                titulo="Cachês pendentes"
                 valor={moeda(
                   totalMusicosPendentes
                 )}
@@ -1530,15 +1530,15 @@ setFechamentos(
 
             </section>
 
-            {/* RECEITAS + DISTRIBUIÃ‡ÃƒO */}
+            {/* RECEITAS + DISTRIBUIÇÃO */}
 
-            <div className="grid grid-cols-1 gap-3 sm:p-6 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
 
               <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
 
-                <div className="border-b border-slate-200 p-3 sm:p-5">
+                <div className="border-b border-slate-200 p-5">
 
-                  <h2 className="text-base font-bold sm:text-lg sm:text-xl">
+                  <h2 className="text-xl font-bold">
                     Receitas
                   </h2>
 
@@ -1556,19 +1556,19 @@ setFechamentos(
                     <thead className="bg-slate-50 text-xs uppercase text-slate-500">
 
                       <tr>
-                        <th className="px-3 sm:px-5 py-3">
+                        <th className="px-5 py-3">
                           Receita
                         </th>
 
-                        <th className="px-3 sm:px-5 py-3">
+                        <th className="px-5 py-3">
                           Confirmado
                         </th>
 
-                        <th className="px-3 sm:px-5 py-3">
+                        <th className="px-5 py-3">
                           Recebido
                         </th>
 
-                        <th className="px-3 sm:px-5 py-3">
+                        <th className="px-5 py-3">
                           Pendente
                         </th>
                       </tr>
@@ -1586,23 +1586,23 @@ setFechamentos(
                         ]) => (
                           <tr key={nome}>
 
-                            <td className="px-3 sm:px-5 py-3 font-semibold">
+                            <td className="px-5 py-3 font-semibold">
                               {nome}
                             </td>
 
-                            <td className="px-3 sm:px-5 py-3">
+                            <td className="px-5 py-3">
                               {moeda(
                                 linha.confirmado
                               )}
                             </td>
 
-                            <td className="px-3 sm:px-5 py-3 text-green-700">
+                            <td className="px-5 py-3 text-green-700">
                               {moeda(
                                 linha.recebido
                               )}
                             </td>
 
-                            <td className="px-3 sm:px-5 py-3 text-amber-700">
+                            <td className="px-5 py-3 text-amber-700">
                               {moeda(
                                 Math.max(
                                   linha.confirmado -
@@ -1626,23 +1626,23 @@ setFechamentos(
 
               <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
 
-                <div className="border-b border-slate-200 p-3 sm:p-5">
+                <div className="border-b border-slate-200 p-5">
 
-                  <h2 className="text-base font-bold sm:text-lg sm:text-xl">
-                    DistribuiÃ§Ã£o semanal
+                  <h2 className="text-xl font-bold">
+                    Distribuição semanal
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
                     Valores registrados nos
-                    fechamentos do perÃ­odo.
+                    fechamentos do período.
                   </p>
 
                 </div>
 
-                <div className="grid gap-3 p-3 sm:p-5 md:grid-cols-3">
+                <div className="grid gap-3 p-5 md:grid-cols-3">
 
                   <Card
-                    titulo="Rodrigo â€” 1/4"
+                    titulo="Rodrigo — 1/4"
                     valor={moeda(
                       distribuicao.rodrigo
                     )}
@@ -1650,7 +1650,7 @@ setFechamentos(
                   />
 
                   <Card
-                    titulo="Marlon â€” 1/4"
+                    titulo="Marlon — 1/4"
                     valor={moeda(
                       distribuicao.marlon
                     )}
@@ -1658,7 +1658,7 @@ setFechamentos(
                   />
 
                   <Card
-                    titulo="Caixa â€” 2/4"
+                    titulo="Caixa — 2/4"
                     valor={moeda(
                       distribuicao.grupo
                     )}
@@ -1667,8 +1667,8 @@ setFechamentos(
 
                 </div>
 
-                <div className="mx-5 mb-5 rounded-lg bg-slate-50 p-3 sm:p-4 text-sm">
-                  Total distribuÃ­do:
+                <div className="mx-5 mb-5 rounded-lg bg-slate-50 p-4 text-sm">
+                  Total distribuído:
                   <strong className="ml-1">
                     {moeda(
                       distribuicao.total
@@ -1680,33 +1680,33 @@ setFechamentos(
 
             </div>
 
-            {/* DESEMPENHO DOS MÃšSICOS */}
+            {/* DESEMPENHO DOS MÚSICOS */}
 
             <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
 
-              <div className="flex flex-wrap items-center justify-between gap-3 sm:p-4 border-b border-slate-200 p-3 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5">
 
                 <div>
 
-                  <h2 className="text-base font-bold sm:text-lg sm:text-xl">
-                    Desempenho dos mÃºsicos
+                  <h2 className="text-xl font-bold">
+                    Desempenho dos músicos
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    Eventos, ensaios, cachÃªs,
-                    pagamentos e bonificaÃ§Ãµes.
+                    Eventos, ensaios, cachês,
+                    pagamentos e bonificações.
                   </p>
 
                 </div>
 
                 <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                  Maior frequÃªncia:
+                  Maior frequência:
                   <strong className="ml-1">
                     {maiorParticipacao}
                     {" "}
                     {maiorParticipacao === 1
-                      ? "participaÃ§Ã£o"
-                      : "participaÃ§Ãµes"}
+                      ? "participação"
+                      : "participações"}
                   </strong>
                 </div>
 
@@ -1721,7 +1721,7 @@ setFechamentos(
                     <tr>
 
                       <th className="px-4 py-3">
-                        MÃºsico
+                        Músico
                       </th>
 
                       <th className="px-4 py-3">
@@ -1737,7 +1737,7 @@ setFechamentos(
                       </th>
 
                       <th className="px-4 py-3">
-                        CachÃªs
+                        Cachês
                       </th>
 
                       <th className="px-4 py-3">
@@ -1749,11 +1749,11 @@ setFechamentos(
                       </th>
 
                       <th className="px-4 py-3">
-                        BÃ´nus
+                        Bônus
                       </th>
 
                       <th className="px-4 py-3">
-                        NÂº bÃ´nus
+                        Nº bônus
                       </th>
 
                     </tr>
@@ -1768,19 +1768,19 @@ setFechamentos(
                           key={linha.id}
                         >
 
-                          <td className="px-4 py-3 sm:py-4 font-bold">
+                          <td className="px-4 py-4 font-bold">
                             {linha.nome}
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4">
+                          <td className="px-4 py-4">
                             {linha.eventos}
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4">
+                          <td className="px-4 py-4">
                             {linha.ensaios}
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4">
+                          <td className="px-4 py-4">
 
                             <span className="rounded-full bg-slate-100 px-3 py-1 font-bold">
                               {
@@ -1790,25 +1790,25 @@ setFechamentos(
 
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4">
+                          <td className="px-4 py-4">
                             {moeda(
                               linha.totalCache
                             )}
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4 text-green-700">
+                          <td className="px-4 py-4 text-green-700">
                             {moeda(
                               linha.cachePago
                             )}
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4 text-amber-700">
+                          <td className="px-4 py-4 text-amber-700">
                             {moeda(
                               linha.cachePendente
                             )}
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4">
+                          <td className="px-4 py-4">
 
                             {linha.bonusPago >
                             0 ? (
@@ -1844,7 +1844,7 @@ setFechamentos(
 
                           </td>
 
-                          <td className="px-4 py-3 sm:py-4">
+                          <td className="px-4 py-4">
                             {linha.quantidadeBonus}
                           </td>
 
@@ -1857,10 +1857,10 @@ setFechamentos(
                       <tr>
                         <td
                           colSpan={9}
-                          className="px-3 sm:px-5 py-10 text-center text-slate-500"
+                          className="px-5 py-10 text-center text-slate-500"
                         >
-                          Nenhum mÃºsico encontrado
-                          no perÃ­odo.
+                          Nenhum músico encontrado
+                          no período.
                         </td>
                       </tr>
                     )}
@@ -1873,33 +1873,33 @@ setFechamentos(
 
             </section>
 
-            {/* DETALHE POR MÃšSICO */}
+            {/* DETALHE POR MÚSICO */}
 
             <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
 
-              <div className="border-b border-slate-200 p-3 sm:p-5">
+              <div className="border-b border-slate-200 p-5">
 
-                <h2 className="text-base font-bold sm:text-lg sm:text-xl">
+                <h2 className="text-xl font-bold">
                   Resumo individual
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  InformaÃ§Ãµes detalhadas de
-                  frequÃªncia e instrumentos.
+                  Informações detalhadas de
+                  frequência e instrumentos.
                 </p>
 
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:p-4 p-3 sm:p-5 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
 
                 {linhasMusicos.map(
                   (linha) => (
                     <div
                       key={linha.id}
-                      className="rounded-xl border border-slate-200 p-3 sm:p-5"
+                      className="rounded-xl border border-slate-200 p-5"
                     >
 
-                      <h3 className="text-base font-bold sm:text-lg">
+                      <h3 className="text-lg font-bold">
                         {linha.nome}
                       </h3>
 
@@ -1920,7 +1920,7 @@ setFechamentos(
                         />
 
                         <MiniInfo
-                          titulo="ParticipaÃ§Ãµes"
+                          titulo="Participações"
                           valor={String(
                             linha.participacoes
                           )}
@@ -1939,7 +1939,7 @@ setFechamentos(
 
                         <div className="flex justify-between">
                           <span className="text-slate-500">
-                            Total de cachÃªs
+                            Total de cachês
                           </span>
 
                           <strong>
@@ -1951,7 +1951,7 @@ setFechamentos(
 
                         <div className="flex justify-between">
                           <span className="text-slate-500">
-                            MÃ©dia por data
+                            Média por data
                           </span>
 
                           <strong>
@@ -1963,7 +1963,7 @@ setFechamentos(
 
                         <div className="flex justify-between">
                           <span className="text-slate-500">
-                            BÃ´nus recebidos
+                            Bônus recebidos
                           </span>
 
                           <strong className="text-green-700">
@@ -1975,7 +1975,7 @@ setFechamentos(
 
                         <div className="flex justify-between">
                           <span className="text-slate-500">
-                            Quantidade de bÃ´nus
+                            Quantidade de bônus
                           </span>
 
                           <strong>
@@ -2009,22 +2009,22 @@ setFechamentos(
 
             </section>
 
-            {/* BONIFICAÃ‡Ã•ES */}
+            {/* BONIFICAÇÕES */}
 
             <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
 
-              <div className="border-b border-slate-200 p-3 sm:p-5">
+              <div className="border-b border-slate-200 p-5">
 
-                <div className="flex flex-wrap items-center justify-between gap-3 sm:p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
 
                   <div>
 
-                    <h2 className="text-base font-bold sm:text-lg sm:text-xl">
-                      HistÃ³rico de bonificaÃ§Ãµes
+                    <h2 className="text-xl font-bold">
+                      Histórico de bonificações
                     </h2>
 
                     <p className="mt-1 text-sm text-slate-500">
-                      BonificaÃ§Ãµes mensais e situaÃ§Ã£o
+                      Bonificações mensais e situação
                       de pagamento.
                     </p>
 
@@ -2065,8 +2065,8 @@ setFechamentos(
               {bonificacoes.length ===
               0 ? (
                 <div className="p-10 text-center text-slate-500">
-                  Nenhuma bonificaÃ§Ã£o registrada
-                  neste perÃ­odo.
+                  Nenhuma bonificação registrada
+                  neste período.
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
@@ -2084,10 +2084,10 @@ setFechamentos(
                       return (
                         <div
                           key={bonus.id}
-                          className="p-3 sm:p-5"
+                          className="p-5"
                         >
 
-                          <div className="flex flex-wrap items-center justify-between gap-3 sm:p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-4">
 
                             <div>
 
@@ -2115,7 +2115,7 @@ setFechamentos(
 
                               {bonus.paid ? (
                                 <span className="rounded-full bg-green-100 px-3 py-2 text-xs font-bold text-green-700">
-                                  âœ“ Pago em{" "}
+                                  ✓ Pago em{" "}
                                   {dataBR(
                                     bonus.payment_date
                                   )}
@@ -2147,7 +2147,7 @@ setFechamentos(
                                     key={
                                       premio.id
                                     }
-                                    className="rounded-lg border border-slate-200 p-3 sm:p-4"
+                                    className="rounded-lg border border-slate-200 p-4"
                                   >
 
                                     <div className="flex justify-between gap-3">
@@ -2157,7 +2157,7 @@ setFechamentos(
                                         <p className="font-bold">
                                           {
                                             musico?.name ||
-                                            "MÃºsico"
+                                            "Músico"
                                           }
                                         </p>
 
@@ -2173,7 +2173,7 @@ setFechamentos(
                                           {
                                             premio.total_participations
                                           }{" "}
-                                          participaÃ§Ãµes
+                                          participações
                                         </p>
 
                                       </div>
@@ -2207,22 +2207,22 @@ setFechamentos(
 
             <section className="mt-6 rounded-xl border border-purple-200 bg-white shadow-sm">
 
-              <div className="border-b border-purple-100 bg-purple-50 p-3 sm:p-5">
+              <div className="border-b border-purple-100 bg-purple-50 p-5">
 
-                <h2 className="text-base font-bold sm:text-lg sm:text-xl">
-                  Ensaios do perÃ­odo
+                <h2 className="text-xl font-bold">
+                  Ensaios do período
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-600">
-                  Ensaios contam para a frequÃªncia,
-                  mas nÃ£o geram cachÃª.
+                  Ensaios contam para a frequência,
+                  mas não geram cachê.
                 </p>
 
               </div>
 
-              <div className="p-3 sm:p-5">
+              <div className="p-5">
 
-                <div className="mb-5 grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-3">
+                <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
 
                   <MiniCard
                     titulo="Ensaios realizados"
@@ -2232,14 +2232,14 @@ setFechamentos(
                   />
 
                   <MiniCard
-                    titulo="PresenÃ§as registradas"
+                    titulo="Presenças registradas"
                     valor={String(
                       presencasEnsaio.length
                     )}
                   />
 
                   <MiniCard
-                    titulo="Meses com bonificaÃ§Ã£o"
+                    titulo="Meses com bonificação"
                     valor={String(
                       bonusMeses
                     )}
@@ -2251,7 +2251,7 @@ setFechamentos(
                 0 ? (
                   <p className="text-sm text-slate-500">
                     Nenhum ensaio registrado
-                    neste perÃ­odo.
+                    neste período.
                   </p>
                 ) : (
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -2270,7 +2270,7 @@ setFechamentos(
                         return (
                           <div
                             key={ensaio.id}
-                            className="rounded-lg border border-slate-200 p-3 sm:p-4"
+                            className="rounded-lg border border-slate-200 p-4"
                           >
 
                             <p className="font-bold">
@@ -2300,9 +2300,9 @@ setFechamentos(
 
             <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
 
-              <div className="border-b border-slate-200 p-3 sm:p-5">
+              <div className="border-b border-slate-200 p-5">
 
-                <h2 className="text-base font-bold sm:text-lg sm:text-xl">
+                <h2 className="text-xl font-bold">
                   Eventos realizados
                 </h2>
 
@@ -2312,7 +2312,7 @@ setFechamentos(
                   1
                     ? "evento realizado"
                     : "eventos realizados"}{" "}
-                  no perÃ­odo.
+                  no período.
                 </p>
 
               </div>
@@ -2381,10 +2381,10 @@ setFechamentos(
                     return (
                       <div
                         key={evento.id}
-                        className="p-3 sm:p-5"
+                        className="p-5"
                       >
 
-                        <div className="flex flex-wrap items-center justify-between gap-3 sm:p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
 
                           <div>
 
@@ -2433,7 +2433,7 @@ setFechamentos(
                           />
 
                           <MiniInfo
-                            titulo="MÃºsicos"
+                            titulo="Músicos"
                             valor={moeda(
                               musicosEventoLocal
                             )}
@@ -2457,9 +2457,9 @@ setFechamentos(
 
             </section>
 
-            {/* OBSERVAÃ‡ÃƒO FINANCEIRA */}
+            {/* OBSERVAÇÃO FINANCEIRA */}
 
-            <section className="mt-6 mb-10 rounded-xl border border-blue-200 bg-blue-50 p-3 sm:p-5">
+            <section className="mt-6 mb-10 rounded-xl border border-blue-200 bg-blue-50 p-5">
 
               <h2 className="font-bold text-blue-900">
                 Regra financeira do sistema
@@ -2470,7 +2470,7 @@ setFechamentos(
                 <p>
                   O resultado semanal considera
                   receitas confirmadas dos eventos,
-                  cachÃªs dos mÃºsicos e despesas dos
+                  cachês dos músicos e despesas dos
                   eventos.
                 </p>
 
@@ -2480,21 +2480,21 @@ setFechamentos(
                 </p>
 
                 <p>
-                  Valores ainda nÃ£o recebidos
+                  Valores ainda não recebidos
                   continuam como contas a receber,
-                  mas nÃ£o alteram o resultado jÃ¡
+                  mas não alteram o resultado já
                   confirmado.
                 </p>
 
                 <p>
-                  BonificaÃ§Ãµes mensais sÃ£o despesas
-                  separadas do Caixa do Grupo e nÃ£o
+                  Bonificações mensais são despesas
+                  separadas do Caixa do Grupo e não
                   alteram nenhum resultado semanal.
                 </p>
 
                 <p>
-                  Ensaios servem para frequÃªncia da
-                  bonificaÃ§Ã£o e nÃ£o geram cachÃª.
+                  Ensaios servem para frequência da
+                  bonificação e não geram cachê.
                 </p>
 
               </div>
@@ -2520,7 +2520,7 @@ function Card({
 }) {
   return (
     <div
-      className={`rounded-xl border p-3 sm:p-5 ${
+      className={`rounded-xl border p-5 ${
         destaque
           ? "border-slate-800 bg-slate-800 text-white"
           : "border-slate-200 bg-white text-slate-800"
@@ -2540,7 +2540,7 @@ function Card({
         className={`mt-1 block ${
           pequeno
             ? "text-xl"
-            : "text-xl sm:text-2xl"
+            : "text-2xl"
         }`}
       >
         {valor}
@@ -2577,12 +2577,12 @@ function MiniCard({
   valor: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 p-3 sm:p-4">
+    <div className="rounded-lg border border-slate-200 p-4">
       <p className="text-sm text-slate-500">
         {titulo}
       </p>
 
-      <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl sm:text-xl sm:text-2xl">
+      <p className="mt-1 text-2xl font-bold">
         {valor}
       </p>
     </div>

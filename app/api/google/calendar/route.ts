@@ -3,6 +3,41 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { google } from "googleapis";
 
+const VIROMANIA_LABEL_ID = "viromania-salvia";
+const VIROMANIA_SALVIA = "#7AE7BF";
+
+async function garantirRotuloSalvia(calendar: any) {
+  const calendario = await calendar.calendars.get({
+    calendarId: "primary",
+  });
+
+  const labels = calendario.data.labelProperties?.eventLabels || [];
+
+  const existente = labels.find(
+    (label: any) => label.id === VIROMANIA_LABEL_ID
+  );
+
+  if (existente) {
+    return;
+  }
+
+  await calendar.calendars.update({
+    calendarId: "primary",
+    requestBody: {
+      labelProperties: {
+        eventLabels: [
+          ...labels,
+          {
+            id: VIROMANIA_LABEL_ID,
+            name: "ViroMania - Sálvia",
+            backgroundColor: VIROMANIA_SALVIA,
+          },
+        ],
+      },
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { eventId } = await request.json();
@@ -39,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json(
-        { error: "Não autenticado" },
+        { error: "Usuário não autenticado." },
         { status: 401 }
       );
     }
@@ -67,26 +102,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         notConnected: true,
+        error: "Google Agenda não está conectado.",
       });
     }
 
     const { data: evento, error: eventoError } = await supabase
       .from("events")
-      .select("id,name,event_date,event_time,location,notes")
+      .select(
+        "id,name,event_date,event_time,location,expected_amount,actual_amount,status,notes"
+      )
       .eq("id", eventId)
       .single();
 
     if (eventoError || !evento) {
       return NextResponse.json(
-        { error: "Evento não encontrado" },
+        { error: "Evento não encontrado." },
         { status: 404 }
-      );
-    }
-
-    if (!evento.event_date) {
-      return NextResponse.json(
-        { error: "O evento não possui data válida." },
-        { status: 400 }
       );
     }
 
@@ -109,70 +140,79 @@ export async function POST(request: NextRequest) {
       auth: oauth2Client,
     });
 
+    await garantirRotuloSalvia(calendar);
+
+    const data = String(evento.event_date).slice(0, 10);
+
+    const valor = Number(evento.expected_amount || 0);
+
+    const valorFormatado = valor.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+    const descricao = [
+      "🎵 VIROMANIA",
+      "",
+      `💰 Valor do evento: ${valorFormatado}`,
+      `📅 Data: ${data.split("-").reverse().join("/")}`,
+      evento.event_time
+        ? `🕐 Horário: ${String(evento.event_time).slice(0, 5)}`
+        : "🕐 Horário: Não informado",
+      evento.location ? `📍 Local: ${evento.location}` : "",
+      evento.status ? `📌 Status: ${evento.status}` : "",
+      "",
+      evento.notes ? `📝 Observações: ${evento.notes}` : "",
+      "",
+      "Evento cadastrado pelo ViroMania Gestão.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     let requestBody: any;
 
     if (evento.event_time) {
-      const data = String(evento.event_date).slice(0, 10);
       const hora = String(evento.event_time).slice(0, 8);
 
-      const inicio = `${data}T${hora}`;
-      const inicioDate = new Date(`${inicio}-03:00`);
+      const inicio = new Date(`${data}T${hora}-03:00`);
 
-      if (Number.isNaN(inicioDate.getTime())) {
+      if (Number.isNaN(inicio.getTime())) {
         return NextResponse.json(
-          {
-            error: "Data/hora inválida.",
-            data,
-            hora,
-          },
+          { error: "Data ou horário do evento inválido." },
           { status: 400 }
         );
       }
 
-      const fimDate = new Date(
-        inicioDate.getTime() + 3 * 60 * 60 * 1000
-      );
+      const fim = new Date(inicio.getTime() + 3 * 60 * 60 * 1000);
 
       requestBody = {
-        summary: evento.name,
+        summary: `ViroMania — ${evento.name}`,
         location: evento.location || undefined,
-        description:
-          evento.notes || "Evento cadastrado no ViroMania Gestão.",
+        description: descricao,
+        eventLabelId: VIROMANIA_LABEL_ID,
         start: {
-          dateTime: inicioDate.toISOString(),
+          dateTime: inicio.toISOString(),
           timeZone: "America/Sao_Paulo",
         },
         end: {
-          dateTime: fimDate.toISOString(),
+          dateTime: fim.toISOString(),
           timeZone: "America/Sao_Paulo",
         },
       };
     } else {
-      const data = String(evento.event_date).slice(0, 10);
-
-      const inicioDate = new Date(`${data}T00:00:00-03:00`);
-
-      if (Number.isNaN(inicioDate.getTime())) {
-        return NextResponse.json(
-          { error: "Data do evento inválida.", data },
-          { status: 400 }
-        );
-      }
-
-      const fimDate = new Date(
-        inicioDate.getTime() + 24 * 60 * 60 * 1000
-      );
+      const inicio = new Date(`${data}T00:00:00-03:00`);
+      const fim = new Date(inicio.getTime() + 24 * 60 * 60 * 1000);
 
       requestBody = {
-        summary: evento.name,
+        summary: `ViroMania — ${evento.name}`,
         location: evento.location || undefined,
-        description:
-          evento.notes || "Evento cadastrado no ViroMania Gestão.",
+        description: descricao,
+        eventLabelId: VIROMANIA_LABEL_ID,
         start: {
           date: data,
         },
         end: {
-          date: fimDate.toISOString().slice(0, 10),
+          date: fim.toISOString().slice(0, 10),
         },
       };
     }
@@ -180,23 +220,18 @@ export async function POST(request: NextRequest) {
     const googleEvent = await calendar.events.insert({
       calendarId: "primary",
       requestBody,
+      eventLabelVersion: 1,
     });
 
     if (!googleEvent.data.id) {
       throw new Error("Google não retornou o ID do evento.");
     }
 
-    const { error: mappingError } = await supabase
-      .from("google_calendar_events")
-      .insert({
-        event_id: eventId,
-        user_id: user.id,
-        google_event_id: googleEvent.data.id,
-      });
-
-    if (mappingError) {
-      console.error("Erro ao salvar vínculo Google:", mappingError);
-    }
+    await supabase.from("google_calendar_events").insert({
+      event_id: eventId,
+      user_id: user.id,
+      google_event_id: googleEvent.data.id,
+    });
 
     return NextResponse.json({
       success: true,
@@ -211,7 +246,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Não foi possível sincronizar com o Google Agenda.",
+            : "Erro ao sincronizar Google Agenda.",
       },
       { status: 500 }
     );

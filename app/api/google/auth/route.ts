@@ -16,7 +16,7 @@ export async function GET() {
     prompt: "consent",
     include_granted_scopes: true,
     scope: [
-      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar",
     ],
     state,
   });
