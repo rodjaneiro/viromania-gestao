@@ -1032,13 +1032,26 @@ export default function EventosPage() {
 
         const googleResult = await googleResponse.json();
 
-        if (!googleResponse.ok) {
-          console.error("Erro Google Agenda:", googleResult);
+        console.log("RESULTADO GOOGLE:", googleResult);
+
+        if (!googleResponse.ok || !googleResult.success) {
+          alert(
+            "Evento salvo no ViroMania, mas o Google Agenda retornou erro:\n\n" +
+            (googleResult.error || "Erro desconhecido.")
+          );
+        } else if (googleResult.alreadySynced) {
+          alert("Este evento já estava sincronizado com o Google Agenda.");
+        } else if (googleResult.notConnected) {
+          alert("O Google Agenda não está conectado. Clique em 'Conectar Google Agenda'.");
         } else {
-          console.log("Google Agenda:", googleResult);
+          alert("Evento criado e sincronizado com o Google Agenda com sucesso!");
         }
       } catch (googleError) {
-        console.error("Erro ao sincronizar Google Agenda:", googleError);
+        console.error("ERRO GOOGLE:", googleError);
+
+        alert(
+          "Evento salvo no ViroMania, mas não foi possível sincronizar com o Google Agenda."
+        );
       }
 
       alert("Evento e recebimentos cadastrados com sucesso!");

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { google } from "googleapis";
@@ -8,7 +8,10 @@ export async function POST(request: NextRequest) {
     const { eventId } = await request.json();
 
     if (!eventId) {
-      return NextResponse.json({ error: "eventId obrigatório" }, { status: 400 });
+      return NextResponse.json(
+        { error: "eventId obrigatório" },
+        { status: 400 }
+      );
     }
 
     const cookieStore = await cookies();
@@ -35,7 +38,10 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Não autenticado" },
+        { status: 401 }
+      );
     }
 
     const { data: existente } = await supabase
@@ -77,6 +83,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!evento.event_date) {
+      return NextResponse.json(
+        { error: "O evento não possui data válida." },
+        { status: 400 }
+      );
+    }
+
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -96,39 +109,94 @@ export async function POST(request: NextRequest) {
       auth: oauth2Client,
     });
 
-    const dataInicio = evento.event_time
-      ? `${evento.event_date}T${evento.event_time}:00`
-      : `${evento.event_date}T19:00:00`;
+    let requestBody: any;
 
-    const inicio = new Date(dataInicio);
-    const fim = new Date(inicio.getTime() + 3 * 60 * 60 * 1000);
+    if (evento.event_time) {
+      const data = String(evento.event_date).slice(0, 10);
+      const hora = String(evento.event_time).slice(0, 8);
 
-    const googleEvent = await calendar.events.insert({
-      calendarId: "primary",
-      requestBody: {
+      const inicio = `${data}T${hora}`;
+      const inicioDate = new Date(`${inicio}-03:00`);
+
+      if (Number.isNaN(inicioDate.getTime())) {
+        return NextResponse.json(
+          {
+            error: "Data/hora inválida.",
+            data,
+            hora,
+          },
+          { status: 400 }
+        );
+      }
+
+      const fimDate = new Date(
+        inicioDate.getTime() + 3 * 60 * 60 * 1000
+      );
+
+      requestBody = {
         summary: evento.name,
         location: evento.location || undefined,
-        description: evento.notes || "Evento cadastrado no ViroMania Gestão.",
+        description:
+          evento.notes || "Evento cadastrado no ViroMania Gestão.",
         start: {
-          dateTime: inicio.toISOString(),
+          dateTime: inicioDate.toISOString(),
           timeZone: "America/Sao_Paulo",
         },
         end: {
-          dateTime: fim.toISOString(),
+          dateTime: fimDate.toISOString(),
           timeZone: "America/Sao_Paulo",
         },
-      },
+      };
+    } else {
+      const data = String(evento.event_date).slice(0, 10);
+
+      const inicioDate = new Date(`${data}T00:00:00-03:00`);
+
+      if (Number.isNaN(inicioDate.getTime())) {
+        return NextResponse.json(
+          { error: "Data do evento inválida.", data },
+          { status: 400 }
+        );
+      }
+
+      const fimDate = new Date(
+        inicioDate.getTime() + 24 * 60 * 60 * 1000
+      );
+
+      requestBody = {
+        summary: evento.name,
+        location: evento.location || undefined,
+        description:
+          evento.notes || "Evento cadastrado no ViroMania Gestão.",
+        start: {
+          date: data,
+        },
+        end: {
+          date: fimDate.toISOString().slice(0, 10),
+        },
+      };
+    }
+
+    const googleEvent = await calendar.events.insert({
+      calendarId: "primary",
+      requestBody,
     });
 
     if (!googleEvent.data.id) {
       throw new Error("Google não retornou o ID do evento.");
     }
 
-    await supabase.from("google_calendar_events").insert({
-      event_id: eventId,
-      user_id: user.id,
-      google_event_id: googleEvent.data.id,
-    });
+    const { error: mappingError } = await supabase
+      .from("google_calendar_events")
+      .insert({
+        event_id: eventId,
+        user_id: user.id,
+        google_event_id: googleEvent.data.id,
+      });
+
+    if (mappingError) {
+      console.error("Erro ao salvar vínculo Google:", mappingError);
+    }
 
     return NextResponse.json({
       success: true,
@@ -140,7 +208,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: "Não foi possível sincronizar com o Google Agenda.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível sincronizar com o Google Agenda.",
       },
       { status: 500 }
     );
