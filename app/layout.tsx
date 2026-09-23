@@ -16,9 +16,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "ViroMania Gestão",
   description: "Sistema de gestão financeira e operacional da ViroMania",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/viromania-logo.png",
+  },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: LayoutProps<"/">) {
   return (
     <html
       lang="pt-BR"
