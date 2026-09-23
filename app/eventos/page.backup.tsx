@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -90,14 +90,14 @@ function textoDiaSemana(weekday: number) {
   const dias = [
     "Todo domingo",
     "Toda segunda-feira",
-    "Toda terÃ§a-feira",
+    "Toda terça-feira",
     "Toda quarta-feira",
     "Toda quinta-feira",
     "Toda sexta-feira",
-    "Todo sÃ¡bado",
+    "Todo sábado",
   ];
 
-  return dias[weekday] || "Dia nÃ£o definido";
+  return dias[weekday] || "Dia não definido";
 }
 
 export default function EventosPage() {
@@ -251,7 +251,7 @@ export default function EventosPage() {
 
     /*
      * Ao trocar para um ano futuro, o sistema cria apenas as
-     * prÃ³ximas 4 ocorrÃªncias daquele ano, sem prÃ©-cadastrar o ano inteiro.
+     * próximas 4 ocorrências daquele ano, sem pré-cadastrar o ano inteiro.
      */
     if (anoSelecionado > new Date().getFullYear()) {
       gerarProximasOcorrencias(
@@ -314,8 +314,8 @@ export default function EventosPage() {
 
       /*
        * No ano atual, continuamos trabalhando a partir de hoje.
-       * Ao consultar um ano futuro, comeÃ§amos em 01/01 daquele ano.
-       * Assim nÃ£o precisamos criar 52 eventos antecipadamente.
+       * Ao consultar um ano futuro, começamos em 01/01 daquele ano.
+       * Assim não precisamos criar 52 eventos antecipadamente.
        */
       const inicio =
         anoAlvo && anoAlvo > anoAtual
@@ -370,8 +370,8 @@ export default function EventosPage() {
             continue;
           }
 
-          // A restriÃ§Ã£o UNIQUE (template_id, event_date) no banco
-          // protege contra duas execuÃ§Ãµes simultÃ¢neas (ex.: React StrictMode).
+          // A restrição UNIQUE (template_id, event_date) no banco
+          // protege contra duas execuções simultâneas (ex.: React StrictMode).
           const { data: eventoCriado, error: eventoError } = await supabase
             .from("events")
             .upsert(
@@ -388,7 +388,7 @@ export default function EventosPage() {
                 ),
                 actual_receipt_date: null,
                 status: "agendado",
-                notes: "OcorrÃªncia criada automaticamente pelo sistema.",
+                notes: "Ocorrência criada automaticamente pelo sistema.",
               },
               {
                 onConflict: "template_id,event_date",
@@ -401,12 +401,12 @@ export default function EventosPage() {
           if (eventoError) {
             throw new Error(
               eventoError.message ||
-                `NÃ£o foi possÃ­vel criar ${template.name} em ${dataOcorrencia}.`
+                `Não foi possível criar ${template.name} em ${dataOcorrencia}.`
             );
           }
 
-          // Outra execuÃ§Ã£o pode ter criado a ocorrÃªncia exatamente ao mesmo
-          // tempo. Nesse caso, ela jÃ¡ existe e nÃ£o devemos criar receitas
+          // Outra execução pode ter criado a ocorrência exatamente ao mesmo
+          // tempo. Nesse caso, ela já existe e não devemos criar receitas
           // novamente.
           if (!eventoCriado) {
             existentesSet.add(chave);
@@ -511,13 +511,13 @@ export default function EventosPage() {
 
       setMensagemRecorrencia(
         criados > 0
-          ? `${criados} ocorrÃªncia(s) recorrente(s) criada(s) automaticamente.`
-          : "As prÃ³ximas ocorrÃªncias recorrentes jÃ¡ estavam cadastradas."
+          ? `${criados} ocorrência(s) recorrente(s) criada(s) automaticamente.`
+          : "As próximas ocorrências recorrentes já estavam cadastradas."
       );
     } catch (error: any) {
       console.error(error);
       setMensagemRecorrencia(
-        `Erro ao gerar ocorrÃªncias recorrentes: ${error.message || "erro desconhecido"}`
+        `Erro ao gerar ocorrências recorrentes: ${error.message || "erro desconhecido"}`
       );
     } finally {
       setGerandoRecorrencias(false);
@@ -847,7 +847,7 @@ export default function EventosPage() {
 
       if (eventoError || !eventoCriado) {
         console.error(eventoError);
-        alert(`Erro ao cadastrar o evento: ${eventoError?.message || "evento nÃ£o criado"}`);
+        alert(`Erro ao cadastrar o evento: ${eventoError?.message || "evento não criado"}`);
         return;
       }
 
@@ -872,7 +872,7 @@ export default function EventosPage() {
         if (modelosError) {
           console.error(modelosError);
           await supabase.from("events").delete().eq("id", eventoCriado.id);
-          alert(`O evento nÃ£o foi salvo porque as receitas nÃ£o puderam ser carregadas: ${modelosError.message}`);
+          alert(`O evento não foi salvo porque as receitas não puderam ser carregadas: ${modelosError.message}`);
           return;
         }
 
@@ -890,7 +890,7 @@ export default function EventosPage() {
             ),
           }));
         } else {
-          // Fallback de seguranÃ§a para nÃ£o criar um evento sem suas receitas.
+          // Fallback de segurança para não criar um evento sem suas receitas.
           // Miami possui duas receitas: evento + aluguel de som.
           const template = templates.find((item) => item.id === templateSelecionado);
           const nomeTemplate = (template?.name || "").trim().toLowerCase();
@@ -946,7 +946,7 @@ export default function EventosPage() {
 
       if (receitas.length === 0) {
         await supabase.from("events").delete().eq("id", eventoCriado.id);
-        alert("O evento nÃ£o foi salvo porque nenhuma receita foi configurada.");
+        alert("O evento não foi salvo porque nenhuma receita foi configurada.");
         return;
       }
 
@@ -957,7 +957,7 @@ export default function EventosPage() {
       if (receitaError) {
         console.error(receitaError);
         await supabase.from("events").delete().eq("id", eventoCriado.id);
-        alert(`O evento nÃ£o foi salvo porque houve erro ao criar as receitas: ${receitaError.message}`);
+        alert(`O evento não foi salvo porque houve erro ao criar as receitas: ${receitaError.message}`);
         return;
       }
 
@@ -971,7 +971,7 @@ export default function EventosPage() {
 
         if (receitaPrincipalError || !receitaPrincipal) {
           await supabase.from("events").delete().eq("id", eventoCriado.id);
-          alert("NÃ£o foi possÃ­vel localizar a receita principal do evento.");
+          alert("Não foi possível localizar a receita principal do evento.");
           return;
         }
 
@@ -1038,7 +1038,7 @@ export default function EventosPage() {
 
     if (participantesError) {
       console.error(participantesError);
-      alert("Erro ao carregar os mÃºsicos do evento.");
+      alert("Erro ao carregar os músicos do evento.");
       return;
     }
 
@@ -1107,7 +1107,7 @@ export default function EventosPage() {
 
       if (buscarError) {
         console.error(buscarError);
-        alert("Erro ao carregar os mÃºsicos atuais do evento.");
+        alert("Erro ao carregar os músicos atuais do evento.");
         return;
       }
 
@@ -1132,7 +1132,7 @@ export default function EventosPage() {
 
         if (instrumentosError) {
           console.error(instrumentosError);
-          alert("Erro ao remover os instrumentos do mÃºsico.");
+          alert("Erro ao remover os instrumentos do músico.");
           return;
         }
 
@@ -1143,7 +1143,7 @@ export default function EventosPage() {
 
         if (participanteError) {
           console.error(participanteError);
-          alert("Erro ao remover o mÃºsico do evento.");
+          alert("Erro ao remover o músico do evento.");
           return;
         }
       }
@@ -1166,7 +1166,7 @@ export default function EventosPage() {
 
           if (participanteError) {
             console.error(participanteError);
-            alert(`Erro ao atualizar o mÃºsico ${musico.musician_name}: ${participanteError.message}`);
+            alert(`Erro ao atualizar o músico ${musico.musician_name}: ${participanteError.message}`);
             return;
           }
         } else {
@@ -1184,15 +1184,15 @@ export default function EventosPage() {
 
           if (participanteError || !participante) {
             console.error(participanteError);
-            alert(`Erro ao salvar o mÃºsico ${musico.musician_name}: ${participanteError?.message || "erro desconhecido"}`);
+            alert(`Erro ao salvar o músico ${musico.musician_name}: ${participanteError?.message || "erro desconhecido"}`);
             return;
           }
 
           participanteId = participante.id;
         }
 
-        // Atualiza apenas os instrumentos. O registro do mÃºsico Ã© preservado,
-        // inclusive status/data do pagamento e, portanto, nÃ£o dispara duplicidade no Caixa.
+        // Atualiza apenas os instrumentos. O registro do músico é preservado,
+        // inclusive status/data do pagamento e, portanto, não dispara duplicidade no Caixa.
         const { error: limparInstrumentosError } = await supabase
           .from("event_musician_instruments")
           .delete()
@@ -1224,7 +1224,7 @@ export default function EventosPage() {
         }
       }
 
-      alert("MÃºsicos do evento salvos com sucesso!");
+      alert("Músicos do evento salvos com sucesso!");
       setMostrarMusicos(false);
       setEventoSelecionado(null);
       setMusicosEvento([]);
@@ -1269,7 +1269,7 @@ export default function EventosPage() {
     }
 
     if (!receitas || receitas.length === 0) {
-      alert("Este evento nÃ£o possui receitas cadastradas.");
+      alert("Este evento não possui receitas cadastradas.");
       setEventoRecebimentos(null);
       return;
     }
@@ -1349,7 +1349,7 @@ export default function EventosPage() {
       ...atual,
       {
         event_revenue_id: eventRevenueId,
-        description: `${description} â€” Parcela`,
+        description: `${description} — Parcela`,
         expected_amount: 0,
         actual_amount: 0,
         expected_receipt_date: defaultDate || null,
@@ -1476,7 +1476,7 @@ async function abrirFechamentoEvento(evento: Evento) {
 
     if (!data || data.length === 0) {
       setEventoFechando(null);
-      alert("Este evento nÃ£o possui receitas cadastradas.");
+      alert("Este evento não possui receitas cadastradas.");
       return;
     }
 
@@ -1661,13 +1661,13 @@ async function abrirFechamentoEvento(evento: Evento) {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-slate-100 p-3 sm:p-3 sm:p-6">
-      <div className="mx-auto w-full max-w-7xl">
+    <main className="min-h-screen bg-slate-100 p-6">
+      <div className="mx-auto max-w-7xl">
 
-        {/* CABEÃ‡ALHO */}
+        {/* CABEÇALHO */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-base font-bold sm:text-lg sm:text-xl sm:text-xl sm:text-2xl sm:text-3xl text-slate-800">
+            <h1 className="text-3xl font-bold text-slate-800">
               Eventos
             </h1>
 
@@ -1678,35 +1678,35 @@ async function abrirFechamentoEvento(evento: Evento) {
 
           <button
             onClick={novoEvento}
-            className="rounded-lg bg-slate-800 px-3 sm:px-5 py-3 text-sm font-semibold text-white shadow hover:bg-slate-700"
+            className="rounded-lg bg-slate-800 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-slate-700"
           >
             + Novo evento
           </button>
         </div>
 
-        {/* RECURRÃŠNCIA AUTOMÃTICA */}
+        {/* RECURRÊNCIA AUTOMÁTICA */}
         <section className="mb-6 rounded-xl border border-blue-200 bg-white shadow-sm">
 
-          <div className="border-b border-blue-100 bg-blue-50 p-3 sm:p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 sm:p-4">
+          <div className="border-b border-blue-100 bg-blue-50 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <h2 className="text-base font-bold sm:text-lg sm:text-xl text-slate-800">
+                <h2 className="text-xl font-bold text-slate-800">
                   Eventos recorrentes
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-600">
-                  O sistema cria automaticamente as prÃ³ximas 4 ocorrÃªncias de cada evento ativo.
+                  O sistema cria automaticamente as próximas 4 ocorrências de cada evento ativo.
                 </p>
               </div>
 
               <button
                 onClick={() => gerarProximasOcorrencias()}
                 disabled={gerandoRecorrencias}
-                className="rounded-lg bg-blue-600 px-3 sm:px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {gerandoRecorrencias
                   ? "Gerando..."
-                  : "Atualizar prÃ³ximas ocorrÃªncias"}
+                  : "Atualizar próximas ocorrências"}
               </button>
             </div>
 
@@ -1717,15 +1717,15 @@ async function abrirFechamentoEvento(evento: Evento) {
             )}
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:p-4 p-3 sm:p-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
             {templates.map((template) => (
               <div
                 key={template.id}
-                className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-5"
+                className="rounded-xl border border-slate-200 bg-slate-50 p-5"
               >
-                <div className="flex items-center justify-between gap-3 sm:p-4">
+                <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-base font-bold sm:text-lg text-slate-800">
+                    <h3 className="text-lg font-bold text-slate-800">
                       {nomePadraoEvento(template.name)}
                     </h3>
 
@@ -1743,9 +1743,9 @@ async function abrirFechamentoEvento(evento: Evento) {
 
                   <div className="text-right">
                     <p className="text-xs text-slate-500">
-                      Total padrÃ£o
+                      Total padrão
                     </p>
-                    <p className="text-base font-bold sm:text-lg sm:text-xl text-green-600">
+                    <p className="text-xl font-bold text-green-600">
                       {formatarMoeda(template.default_amount)}
                     </p>
                   </div>
@@ -1768,23 +1768,23 @@ async function abrirFechamentoEvento(evento: Evento) {
           </div>
         </section>
 
-        {/* FORMULÃRIO */}
+        {/* FORMULÁRIO */}
         {mostrarFormulario && (
           <section
             ref={formularioRef}
-            className="mb-6 scroll-mt-24 rounded-xl border border-slate-200 bg-white p-3 sm:p-6 shadow-sm"
+            className="mb-6 scroll-mt-24 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
           >
 
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-bold sm:text-lg sm:text-xl text-slate-800">
+                <h2 className="text-xl font-bold text-slate-800">
                   {eventoEditando ? "Editar evento" : "Novo evento"}
                 </h2>
 
                 <p className="text-sm text-slate-500">
                   {eventoEditando
-                    ? "Altere os dados do evento e salve as mudanÃ§as."
-                    : "Cadastre um evento particular ou uma ocorrÃªncia recorrente."}
+                    ? "Altere os dados do evento e salve as mudanças."
+                    : "Cadastre um evento particular ou uma ocorrência recorrente."}
                 </p>
               </div>
 
@@ -1796,7 +1796,7 @@ async function abrirFechamentoEvento(evento: Evento) {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 
               <div>
                 <label className="mb-1 block text-sm font-semibold text-slate-700">
@@ -1836,7 +1836,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                   onChange={(e) =>
                     setNome(e.target.value)
                   }
-                  placeholder="Ex.: AniversÃ¡rio JoÃ£o"
+                  placeholder="Ex.: Aniversário João"
                   className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
                 />
               </div>
@@ -1858,7 +1858,7 @@ async function abrirFechamentoEvento(evento: Evento) {
 
               <div>
                 <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  HorÃ¡rio
+                  Horário
                 </label>
                 <input
                   type="time"
@@ -1884,18 +1884,18 @@ async function abrirFechamentoEvento(evento: Evento) {
               </div>
 
               {!eventoEditando && !templateSelecionado ? (
-                <div className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-3 sm:p-4">
+                <div className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-4">
                   <div className="mb-4">
                     <h3 className="text-base font-bold text-slate-800">Financeiro do evento</h3>
-                    <p className="text-xs text-slate-500">Informe o valor total, o sinal jÃ¡ pago e quando o restante serÃ¡ recebido.</p>
+                    <p className="text-xs text-slate-500">Informe o valor total, o sinal já pago e quando o restante será recebido.</p>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <label className="mb-1 block text-sm font-semibold text-slate-700">Valor total do evento</label>
                       <input type="number" step="0.01" value={valorTotalEvento} onChange={(e) => setValorTotalEvento(e.target.value)} placeholder="0,00" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500" />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Sinal jÃ¡ pago</label>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Sinal já pago</label>
                       <input type="number" step="0.01" value={valorSinal} onChange={(e) => setValorSinal(e.target.value)} placeholder="0,00" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500" />
                     </div>
                     <div>
@@ -1927,17 +1927,17 @@ async function abrirFechamentoEvento(evento: Evento) {
               )}
 
               {eventoEditando && (
-                <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
+                <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-bold text-slate-800">Financeiro</p>
                       <p className="text-xs text-slate-500">
-                        Para alterar sinal, saldo ou recebimentos, use o botÃ£o Recebimentos do evento.
+                        Para alterar sinal, saldo ou recebimentos, use o botão Recebimentos do evento.
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs text-slate-500">Valor total</p>
-                      <p className="text-base font-bold sm:text-lg text-slate-800">{formatarMoeda(Number((templateSelecionado ? valorPrevisto : valorTotalEvento).replace(",", ".") || 0))}</p>
+                      <p className="text-lg font-bold text-slate-800">{formatarMoeda(Number((templateSelecionado ? valorPrevisto : valorTotalEvento).replace(",", ".") || 0))}</p>
                     </div>
                   </div>
                 </div>
@@ -1945,7 +1945,7 @@ async function abrirFechamentoEvento(evento: Evento) {
 
               <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  ObservaÃ§Ãµes
+                  Observações
                 </label>
 
                 <textarea
@@ -1953,7 +1953,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                   onChange={(e) =>
                     setObservacoes(e.target.value)
                   }
-                  placeholder="ObservaÃ§Ãµes do evento..."
+                  placeholder="Observações do evento..."
                   rows={3}
                   className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
                 />
@@ -1965,7 +1965,7 @@ async function abrirFechamentoEvento(evento: Evento) {
               <button
                 onClick={salvarEvento}
                 disabled={carregando}
-                className="rounded-lg bg-green-600 px-3 sm:px-6 py-3 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
+                className="rounded-lg bg-green-600 px-6 py-3 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
               >
                 {carregando
                   ? "Salvando..."
@@ -1977,15 +1977,15 @@ async function abrirFechamentoEvento(evento: Evento) {
         )}
 {mostrarMusicos && eventoSelecionado && (
   <section className="mb-6 rounded-xl border border-blue-200 bg-white shadow-sm">
-    <div className="border-b border-blue-100 bg-blue-50 p-3 sm:p-5">
+    <div className="border-b border-blue-100 bg-blue-50 p-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-bold sm:text-lg sm:text-xl text-slate-800">
-            MÃºsicos do evento
+          <h2 className="text-xl font-bold text-slate-800">
+            Músicos do evento
           </h2>
 
           <p className="mt-1 text-sm text-slate-500">
-            {eventoSelecionado.name} â€”{" "}
+            {eventoSelecionado.name} —{" "}
             {formatarData(eventoSelecionado.event_date)}
           </p>
         </div>
@@ -2004,22 +2004,22 @@ async function abrirFechamentoEvento(evento: Evento) {
       </div>
     </div>
 
-    <div className="p-3 sm:p-5">
+    <div className="p-5">
 
-      <div className="mb-5 rounded-lg bg-slate-50 p-3 sm:p-4">
+      <div className="mb-5 rounded-lg bg-slate-50 p-4">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-slate-700">
-              MÃºsicos selecionados
+              Músicos selecionados
             </p>
 
             <p className="text-xs text-slate-500">
-              Selecione os mÃºsicos e os instrumentos que eles farÃ£o neste evento.
+              Selecione os músicos e os instrumentos que eles farão neste evento.
             </p>
           </div>
 
           <div className="text-right">
-            <p className="text-base font-bold sm:text-lg sm:text-xl sm:text-xl sm:text-2xl text-slate-800">
+            <p className="text-2xl font-bold text-slate-800">
               {musicosEvento.filter(
                 (musico) =>
                   musico.instrumentosSelecionados.length > 0
@@ -2027,7 +2027,7 @@ async function abrirFechamentoEvento(evento: Evento) {
             </p>
 
             <p className="text-xs text-slate-500">
-              mÃºsicos
+              músicos
             </p>
           </div>
         </div>
@@ -2042,14 +2042,14 @@ async function abrirFechamentoEvento(evento: Evento) {
           return (
             <div
               key={musico.musician_id}
-              className={`rounded-xl border p-3 sm:p-4 ${
+              className={`rounded-xl border p-4 ${
                 selecionado
                   ? "border-blue-300 bg-blue-50/40"
                   : "border-slate-200 bg-white"
               }`}
             >
 
-              <div className="flex flex-col gap-3 sm:p-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
 
                 <div className="flex-1">
 
@@ -2084,7 +2084,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                       className="h-5 w-5 rounded border-slate-300"
                     />
 
-                    <span className="text-base font-bold sm:text-lg text-slate-800">
+                    <span className="text-lg font-bold text-slate-800">
                       {musico.musician_name}
                     </span>
                   </label>
@@ -2097,7 +2097,7 @@ async function abrirFechamentoEvento(evento: Evento) {
 
                     {musico.instrumentos.length === 0 ? (
                       <p className="text-sm text-red-500">
-                        Nenhum instrumento cadastrado para este mÃºsico.
+                        Nenhum instrumento cadastrado para este músico.
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
@@ -2160,10 +2160,10 @@ async function abrirFechamentoEvento(evento: Evento) {
 
                 <div className="w-full lg:w-72">
 
-                  <div className="rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
+                  <div className="rounded-lg border border-slate-200 bg-white p-4">
 
                     <p className="text-sm font-semibold text-slate-700">
-                      CachÃª
+                      Cachê
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
@@ -2195,13 +2195,13 @@ async function abrirFechamentoEvento(evento: Evento) {
                         className="h-4 w-4 rounded border-slate-300"
                       />
 
-                      Alterar cachÃª deste evento
+                      Alterar cachê deste evento
                     </label>
 
                     {!musico.use_default_cache ? (
                       <div className="mt-3">
                         <label className="mb-1 block text-xs font-semibold text-slate-600">
-                          CachÃª neste evento
+                          Cachê neste evento
                         </label>
 
                         <input
@@ -2230,10 +2230,10 @@ async function abrirFechamentoEvento(evento: Evento) {
                     ) : (
                       <div className="mt-3 rounded-lg bg-green-50 px-3 py-2">
                         <p className="text-xs text-green-700">
-                          CachÃª deste evento
+                          Cachê deste evento
                         </p>
 
-                        <p className="text-base font-bold sm:text-lg text-green-700">
+                        <p className="text-lg font-bold text-green-700">
                           {formatarMoeda(
                             musico.default_cache
                           )}
@@ -2324,14 +2324,14 @@ async function abrirFechamentoEvento(evento: Evento) {
 
       </div>
 
-      <div className="mt-6 flex flex-col gap-3 sm:p-4 rounded-xl bg-slate-800 p-3 sm:p-5 text-white md:flex-row md:items-center md:justify-between">
+      <div className="mt-6 flex flex-col gap-4 rounded-xl bg-slate-800 p-5 text-white md:flex-row md:items-center md:justify-between">
 
         <div>
           <p className="text-sm text-slate-300">
-            Total dos mÃºsicos selecionados
+            Total dos músicos selecionados
           </p>
 
-          <p className="text-base font-bold sm:text-lg sm:text-xl sm:text-xl sm:text-2xl">
+          <p className="text-2xl font-bold">
             {formatarMoeda(
               musicosEvento
                 .filter(
@@ -2356,11 +2356,11 @@ async function abrirFechamentoEvento(evento: Evento) {
           type="button"
           onClick={salvarMusicosEvento}
           disabled={salvandoMusicos}
-          className="rounded-lg bg-green-500 px-3 sm:px-6 py-3 text-sm font-bold text-white hover:bg-green-600 disabled:opacity-50"
+          className="rounded-lg bg-green-500 px-6 py-3 text-sm font-bold text-white hover:bg-green-600 disabled:opacity-50"
         >
           {salvandoMusicos
             ? "Salvando..."
-            : "Salvar mÃºsicos do evento"}
+            : "Salvar músicos do evento"}
         </button>
 
       </div>
@@ -2374,11 +2374,11 @@ async function abrirFechamentoEvento(evento: Evento) {
     ref={recebimentosRef}
     className="mb-6 scroll-mt-24 rounded-xl border border-violet-200 bg-white shadow-sm"
   >
-    <div className="flex items-center justify-between border-b border-violet-200 bg-violet-50 px-3 sm:px-5 py-3 sm:py-4">
+    <div className="flex items-center justify-between border-b border-violet-200 bg-violet-50 px-5 py-4">
       <div>
-        <h2 className="text-base font-bold sm:text-lg sm:text-xl text-slate-800">Recebimentos</h2>
+        <h2 className="text-xl font-bold text-slate-800">Recebimentos</h2>
         <p className="text-sm text-slate-500">
-          {eventoRecebimentos.name} â€” {formatarData(eventoRecebimentos.event_date)}
+          {eventoRecebimentos.name} — {formatarData(eventoRecebimentos.event_date)}
         </p>
       </div>
 
@@ -2393,12 +2393,12 @@ async function abrirFechamentoEvento(evento: Evento) {
       </button>
     </div>
 
-    <div className="p-3 sm:p-5">
-      <div className="mb-5 rounded-xl bg-slate-800 p-3 sm:p-5 text-white">
-        <div className="grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-3">
+    <div className="p-5">
+      <div className="mb-5 rounded-xl bg-slate-800 p-5 text-white">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
             <p className="text-xs uppercase text-slate-300">Total previsto</p>
-            <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl">
+            <p className="mt-1 text-xl font-bold">
               {formatarMoeda(
                 recebimentosParcelas.reduce((s, p) => s + Number(p.expected_amount || 0), 0)
               )}
@@ -2406,7 +2406,7 @@ async function abrirFechamentoEvento(evento: Evento) {
           </div>
           <div>
             <p className="text-xs uppercase text-slate-300">Recebido</p>
-            <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl text-green-300">
+            <p className="mt-1 text-xl font-bold text-green-300">
               {formatarMoeda(
                 recebimentosParcelas
                   .filter((p) => p.status === "recebido")
@@ -2416,7 +2416,7 @@ async function abrirFechamentoEvento(evento: Evento) {
           </div>
           <div>
             <p className="text-xs uppercase text-slate-300">A receber</p>
-            <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl text-yellow-300">
+            <p className="mt-1 text-xl font-bold text-yellow-300">
               {formatarMoeda(
                 recebimentosParcelas
                   .reduce((s, p) => s + Number(p.expected_amount || 0), 0) -
@@ -2431,11 +2431,11 @@ async function abrirFechamentoEvento(evento: Evento) {
 
       <div className="space-y-4">
         {recebimentosParcelas.map((parcela, index) => (
-          <div key={`${parcela.event_revenue_id}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
-            <div className="grid grid-cols-1 gap-3 sm:p-4 xl:grid-cols-6">
+          <div key={`${parcela.event_revenue_id}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-6">
               <div className="xl:col-span-2">
                 <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  DescriÃ§Ã£o
+                  Descrição
                 </label>
                 <input
                   value={parcela.description}
@@ -2563,7 +2563,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                           payment_method: e.target.value,
                         })
                       }
-                      placeholder="PIX, dinheiro, transferÃªncia..."
+                      placeholder="PIX, dinheiro, transferência..."
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
                     />
                   </div>
@@ -2577,7 +2577,7 @@ async function abrirFechamentoEvento(evento: Evento) {
       <div className="mt-5 flex flex-wrap gap-2">
         {Array.from(
           new Map<string, string>(
-            recebimentosParcelas.map((p) => [p.event_revenue_id, p.description.split(" â€” ")[0]] as [string, string])
+            recebimentosParcelas.map((p) => [p.event_revenue_id, p.description.split(" — ")[0]] as [string, string])
           ).entries()
         ).map(([id, descricao]) => (
           <button
@@ -2598,11 +2598,11 @@ async function abrirFechamentoEvento(evento: Evento) {
       </div>
     </div>
 
-    <div className="flex justify-end border-t border-slate-200 px-3 sm:px-5 py-3 sm:py-4">
+    <div className="flex justify-end border-t border-slate-200 px-5 py-4">
       <button
         onClick={salvarRecebimentosEvento}
         disabled={salvandoRecebimentos}
-        className="rounded-lg bg-violet-600 px-3 sm:px-6 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
+        className="rounded-lg bg-violet-600 px-6 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
       >
         {salvandoRecebimentos ? "Salvando..." : "Salvar recebimentos"}
       </button>
@@ -2612,13 +2612,13 @@ async function abrirFechamentoEvento(evento: Evento) {
 
 {eventoFechando && (
   <section className="mb-6 rounded-xl border border-green-200 bg-white shadow-sm">
-    <div className="flex items-center justify-between border-b border-green-200 bg-green-50 px-3 sm:px-5 py-3 sm:py-4">
+    <div className="flex items-center justify-between border-b border-green-200 bg-green-50 px-5 py-4">
       <div>
-        <h2 className="text-base font-bold sm:text-lg sm:text-xl text-slate-800">
+        <h2 className="text-xl font-bold text-slate-800">
           Fechar evento
         </h2>
         <p className="text-sm text-slate-500">
-          {eventoFechando.name} â€” {formatarData(eventoFechando.event_date)}
+          {eventoFechando.name} — {formatarData(eventoFechando.event_date)}
         </p>
       </div>
 
@@ -2633,31 +2633,31 @@ async function abrirFechamentoEvento(evento: Evento) {
       </button>
     </div>
 
-    <div className="p-3 sm:p-5">
+    <div className="p-5">
       <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className="rounded-lg bg-slate-100 p-3 sm:p-4">
+        <div className="rounded-lg bg-slate-100 p-4">
           <p className="text-xs font-semibold uppercase text-slate-500">
             Confirmado
           </p>
-          <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl text-slate-800">
+          <p className="mt-1 text-xl font-bold text-slate-800">
             {formatarMoeda(totalConfirmadoFechamento)}
           </p>
         </div>
 
-        <div className="rounded-lg bg-green-50 p-3 sm:p-4">
+        <div className="rounded-lg bg-green-50 p-4">
           <p className="text-xs font-semibold uppercase text-green-700">
             Recebido
           </p>
-          <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl text-green-700">
+          <p className="mt-1 text-xl font-bold text-green-700">
             {formatarMoeda(totalRecebidoFechamento)}
           </p>
         </div>
 
-        <div className="rounded-lg bg-yellow-50 p-3 sm:p-4">
+        <div className="rounded-lg bg-yellow-50 p-4">
           <p className="text-xs font-semibold uppercase text-yellow-700">
             A receber
           </p>
-          <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl text-yellow-700">
+          <p className="mt-1 text-xl font-bold text-yellow-700">
             {formatarMoeda(totalAReceberFechamento)}
           </p>
         </div>
@@ -2667,17 +2667,17 @@ async function abrirFechamentoEvento(evento: Evento) {
         {receitasFechamento.map((receita) => (
           <div
             key={receita.id}
-            className={`rounded-xl border p-3 sm:p-4 ${
+            className={`rounded-xl border p-4 ${
               receita.confirmed
                 ? "border-slate-200 bg-white"
                 : "border-red-200 bg-red-50"
             }`}
           >
-            <div className="flex flex-col gap-3 sm:p-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex-1">
-                <div className="flex items-center justify-between gap-3 sm:p-4">
+                <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-base font-bold sm:text-lg text-slate-800">
+                    <p className="text-lg font-bold text-slate-800">
                       {receita.description}
                     </p>
                     <p className="text-sm text-slate-500">
@@ -2705,13 +2705,13 @@ async function abrirFechamentoEvento(evento: Evento) {
 
                 {!receita.confirmed ? (
                   <div className="mt-4 rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-700">
-                    Esta receita serÃ¡ excluÃ­da do resultado e nÃ£o entrarÃ¡ no Caixa.
+                    Esta receita será excluída do resultado e não entrará no Caixa.
                   </div>
                 ) : (
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-3">
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                     <div>
                       <label className="mb-1 block text-xs font-semibold text-slate-600">
-                        SituaÃ§Ã£o
+                        Situação
                       </label>
                       <select
                         value={
@@ -2737,7 +2737,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                         }}
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-green-500"
                       >
-                        <option value="pendente">Confirmado â€” ainda nÃ£o recebido</option>
+                        <option value="pendente">Confirmado — ainda não recebido</option>
                         <option value="parcial">Recebido parcialmente</option>
                         <option value="recebido">Recebido</option>
                       </select>
@@ -2785,23 +2785,23 @@ async function abrirFechamentoEvento(evento: Evento) {
         ))}
       </div>
 
-      <div className="mt-6 rounded-xl bg-slate-800 p-3 sm:p-5 text-white">
-        <div className="grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-3">
+      <div className="mt-6 rounded-xl bg-slate-800 p-5 text-white">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
             <p className="text-xs uppercase text-slate-300">Confirmado</p>
-            <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl">
+            <p className="mt-1 text-xl font-bold">
               {formatarMoeda(totalConfirmadoFechamento)}
             </p>
           </div>
           <div>
             <p className="text-xs uppercase text-slate-300">Recebido</p>
-            <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl">
+            <p className="mt-1 text-xl font-bold">
               {formatarMoeda(totalRecebidoFechamento)}
             </p>
           </div>
           <div>
             <p className="text-xs uppercase text-slate-300">A receber</p>
-            <p className="mt-1 text-base font-bold sm:text-lg sm:text-xl">
+            <p className="mt-1 text-xl font-bold">
               {formatarMoeda(totalAReceberFechamento)}
             </p>
           </div>
@@ -2809,11 +2809,11 @@ async function abrirFechamentoEvento(evento: Evento) {
       </div>
     </div>
 
-    <div className="flex justify-end border-t border-slate-200 px-3 sm:px-5 py-3 sm:py-4">
+    <div className="flex justify-end border-t border-slate-200 px-5 py-4">
       <button
         onClick={salvarFechamentoEvento}
         disabled={salvandoFechamento || receitasFechamento.length === 0}
-        className="rounded-lg bg-green-600 px-3 sm:px-6 py-3 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
+        className="rounded-lg bg-green-600 px-6 py-3 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
       >
         {salvandoFechamento
           ? "Salvando..."
@@ -2825,14 +2825,14 @@ async function abrirFechamentoEvento(evento: Evento) {
         {/* LISTA DE EVENTOS */}
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
 
-          <div className="flex flex-wrap items-end justify-between gap-3 sm:p-4 border-b border-slate-200 p-3 sm:p-5">
+          <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 p-5">
             <div>
-              <h2 className="text-base font-bold sm:text-lg sm:text-xl text-slate-800">
+              <h2 className="text-xl font-bold text-slate-800">
                 Eventos cadastrados
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Eventos futuros e eventos jÃ¡ realizados.
+                Eventos futuros e eventos já realizados.
               </p>
             </div>
 
@@ -2858,7 +2858,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                       className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-sm font-bold text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                       title="Limpar busca"
                     >
-                      Ã—
+                      ×
                     </button>
                   )}
                 </div>
@@ -2898,32 +2898,32 @@ async function abrirFechamentoEvento(evento: Evento) {
 
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">
+                    <th className="px-5 py-4">
                       Evento
                     </th>
 
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">
+                    <th className="px-5 py-4">
                       Data
                     </th>
 
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">
-                      HorÃ¡rio
+                    <th className="px-5 py-4">
+                      Horário
                     </th>
 
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">
+                    <th className="px-5 py-4">
                       Valor
                     </th>
 
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">
+                    <th className="px-5 py-4">
                       Recebimento
                     </th>
 
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">
+                    <th className="px-5 py-4">
                       Status
                     </th>
 
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">
-                      AÃ§Ãµes
+                    <th className="px-5 py-4">
+                      Ações
                     </th>
                   </tr>
                 </thead>
@@ -2935,7 +2935,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                       key={evento.id}
                       className="hover:bg-slate-50"
                     >
-                      <td className="px-3 sm:px-5 py-3 sm:py-4">
+                      <td className="px-5 py-4">
                         <div className="font-semibold text-slate-800">
                           {nomePadraoEvento(evento.name)}
                         </div>
@@ -2950,17 +2950,17 @@ async function abrirFechamentoEvento(evento: Evento) {
                         )}
                       </td>
 
-                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-slate-600">
+                      <td className="px-5 py-4 text-slate-600">
                         {formatarData(
                           evento.event_date
                         )}
                       </td>
 
-                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-slate-600">
+                      <td className="px-5 py-4 text-slate-600">
                         {evento.event_time || "-"}
                       </td>
 
-                      <td className="px-3 sm:px-5 py-3 sm:py-4 font-semibold text-slate-700">
+                      <td className="px-5 py-4 font-semibold text-slate-700">
                         {formatarMoeda(
   evento.status === "realizado" && evento.actual_amount !== null
     ? evento.actual_amount
@@ -2968,13 +2968,13 @@ async function abrirFechamentoEvento(evento: Evento) {
 )}
                       </td>
 
-                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-slate-600">
+                      <td className="px-5 py-4 text-slate-600">
                         {formatarData(
                           evento.expected_receipt_date
                         )}
                       </td>
 
-                      <td className="px-3 sm:px-5 py-3 sm:py-4">
+                      <td className="px-5 py-4">
                         <select
                           value={evento.status}
                           onChange={(e) =>
@@ -2994,7 +2994,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                           </option>
 
                           <option value="nao_realizado">
-                            NÃ£o realizado
+                            Não realizado
                           </option>
 
                           <option value="cancelado">
@@ -3003,7 +3003,7 @@ async function abrirFechamentoEvento(evento: Evento) {
                         </select>
                       </td>
 
-<td className="px-3 sm:px-5 py-3 sm:py-4">
+<td className="px-5 py-4">
   <div className="flex flex-wrap gap-2">
     <button
       onClick={() => editarEvento(evento)}
@@ -3031,7 +3031,7 @@ async function abrirFechamentoEvento(evento: Evento) {
       onClick={() => abrirMusicosEvento(evento)}
       className="rounded-lg bg-blue-100 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-200"
     >
-      MÃºsicos
+      Músicos
     </button>
 
     <button

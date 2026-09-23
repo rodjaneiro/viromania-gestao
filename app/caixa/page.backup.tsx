@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -45,9 +45,9 @@ function tipoLabel(tipo: string) {
 
   const mapa: Record<string, string> = {
     saldo_inicial: "Saldo inicial",
-    pagamento_musico: "Pagamento mÃºsico",
-    distribuicao: "DistribuiÃ§Ã£o",
-    bonificacao: "BonificaÃ§Ã£o",
+    pagamento_musico: "Pagamento músico",
+    distribuicao: "Distribuição",
+    bonificacao: "Bonificação",
   };
 
   return mapa[tipo] || tipo;
@@ -140,12 +140,12 @@ export default function CaixaPage() {
     const valorNumerico = Number(saldoInicial || 0);
 
     if (!dataInicio) {
-      alert("Informe a data de inÃ­cio.");
+      alert("Informe a data de início.");
       return;
     }
 
     if (valorNumerico < 0) {
-      alert("O saldo inicial nÃ£o pode ser negativo.");
+      alert("O saldo inicial não pode ser negativo.");
       return;
     }
 
@@ -164,7 +164,7 @@ export default function CaixaPage() {
 
       if (error) throw error;
 
-      alert("ConfiguraÃ§Ã£o inicial salva!");
+      alert("Configuração inicial salva!");
       await carregar();
     } catch (error: any) {
       console.error(error);
@@ -178,7 +178,7 @@ export default function CaixaPage() {
     const valorNumerico = Number(valor || 0);
 
     if (!descricao.trim()) {
-      alert("Informe a descriÃ§Ã£o.");
+      alert("Informe a descrição.");
       return;
     }
 
@@ -208,7 +208,7 @@ export default function CaixaPage() {
       await carregar();
     } catch (error: any) {
       console.error(error);
-      alert(`Erro ao lanÃ§ar no caixa: ${error.message || "erro desconhecido"}`);
+      alert(`Erro ao lançar no caixa: ${error.message || "erro desconhecido"}`);
     } finally {
       setSalvandoLancamento(false);
     }
@@ -217,7 +217,7 @@ export default function CaixaPage() {
   return (
     <main className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-7xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-3 sm:p-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
               Financeiro
@@ -230,43 +230,43 @@ export default function CaixaPage() {
 
           <button
             onClick={() => setMostrarLancamento((v) => !v)}
-            className="rounded-xl bg-slate-900 px-3 sm:px-5 py-3 text-sm font-bold text-white hover:bg-slate-800"
+            className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800"
           >
-            {mostrarLancamento ? "Fechar lanÃ§amento" : "+ LanÃ§amento manual"}
+            {mostrarLancamento ? "Fechar lançamento" : "+ Lançamento manual"}
           </button>
         </div>
 
-        <section className="mb-6 grid grid-cols-1 gap-3 sm:p-4 md:grid-cols-3">
-          <div className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
+        <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-bold uppercase text-slate-500">Saldo atual</p>
             <p className={`mt-2 text-3xl font-extrabold ${saldoAtual >= 0 ? "text-slate-900" : "text-red-600"}`}>
               {moeda(saldoAtual)}
             </p>
           </div>
 
-          <div className="rounded-xl sm:rounded-2xl border border-green-200 bg-green-50 p-3 sm:p-5 shadow-sm">
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm">
             <p className="text-xs font-bold uppercase text-green-700">Entradas</p>
-            <p className="mt-2 text-xl sm:text-2xl font-extrabold text-green-700">{moeda(entradas)}</p>
+            <p className="mt-2 text-2xl font-extrabold text-green-700">{moeda(entradas)}</p>
           </div>
 
-          <div className="rounded-xl sm:rounded-2xl border border-red-200 bg-red-50 p-3 sm:p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase text-red-700">SaÃ­das</p>
-            <p className="mt-2 text-xl sm:text-2xl font-extrabold text-red-700">{moeda(saidas)}</p>
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase text-red-700">Saídas</p>
+            <p className="mt-2 text-2xl font-extrabold text-red-700">{moeda(saidas)}</p>
           </div>
         </section>
 
-        <section className="mb-6 rounded-xl sm:rounded-2xl border border-blue-200 bg-white shadow-sm">
-          <div className="border-b border-blue-100 bg-blue-50 px-3 sm:px-5 py-3 sm:py-4">
-            <h2 className="text-base font-bold sm:text-lg text-slate-800">ImplantaÃ§Ã£o do caixa</h2>
+        <section className="mb-6 rounded-2xl border border-blue-200 bg-white shadow-sm">
+          <div className="border-b border-blue-100 bg-blue-50 px-5 py-4">
+            <h2 className="text-lg font-bold text-slate-800">Implantação do caixa</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Cadastre aqui o valor que jÃ¡ existe no caixa/conta no dia em que o sistema comeÃ§a.
+              Cadastre aqui o valor que já existe no caixa/conta no dia em que o sistema começa.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:p-4 p-3 sm:p-5 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-bold uppercase text-slate-500">
-                Data de inÃ­cio
+                Data de início
               </label>
               <input
                 type="date"
@@ -292,7 +292,7 @@ export default function CaixaPage() {
 
             <div>
               <label className="mb-1 block text-xs font-bold uppercase text-slate-500">
-                ObservaÃ§Ã£o
+                Observação
               </label>
               <input
                 value={observacaoInicial}
@@ -303,17 +303,17 @@ export default function CaixaPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-slate-100 px-3 sm:px-5 py-3 sm:py-4">
+          <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4">
             <div className="text-sm text-slate-500">
               {config
                 ? `Implantado em ${dataBR(config.start_date)}`
-                : "Ainda nÃ£o configurado"}
+                : "Ainda não configurado"}
             </div>
 
             <button
               onClick={salvarConfiguracaoInicial}
               disabled={salvandoConfig}
-              className="rounded-lg bg-blue-600 px-3 sm:px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {salvandoConfig ? "Salvando..." : "Salvar saldo inicial"}
             </button>
@@ -321,12 +321,12 @@ export default function CaixaPage() {
         </section>
 
         {mostrarLancamento && (
-          <section className="mb-6 rounded-xl sm:rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-3 sm:px-5 py-3 sm:py-4">
-              <h2 className="text-base font-bold sm:text-lg text-slate-800">LanÃ§amento manual</h2>
+          <section className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <h2 className="text-lg font-bold text-slate-800">Lançamento manual</h2>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:p-4 p-3 sm:p-5 md:grid-cols-2 lg:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 lg:grid-cols-5">
               <div>
                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Data</label>
                 <input
@@ -338,7 +338,7 @@ export default function CaixaPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">DescriÃ§Ã£o</label>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Descrição</label>
                 <input
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
@@ -370,7 +370,7 @@ export default function CaixaPage() {
                   className="w-full rounded-lg border border-slate-300 px-3 py-3"
                 >
                   <option value="entrada">Entrada</option>
-                  <option value="saida">SaÃ­da</option>
+                  <option value="saida">Saída</option>
                 </select>
               </div>
 
@@ -387,7 +387,7 @@ export default function CaixaPage() {
               </div>
 
               <div className="md:col-span-2 lg:col-span-4">
-                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">ObservaÃ§Ã£o</label>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Observação</label>
                 <input
                   value={observacao}
                   onChange={(e) => setObservacao(e.target.value)}
@@ -400,21 +400,21 @@ export default function CaixaPage() {
                 <button
                   onClick={salvarLancamento}
                   disabled={salvandoLancamento}
-                  className="w-full rounded-lg bg-green-600 px-3 sm:px-5 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-50"
+                  className="w-full rounded-lg bg-green-600 px-5 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-50"
                 >
-                  {salvandoLancamento ? "Salvando..." : "LanÃ§ar"}
+                  {salvandoLancamento ? "Salvando..." : "Lançar"}
                 </button>
               </div>
             </div>
           </section>
         )}
 
-        <section className="overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 px-3 sm:px-5 py-3 sm:py-4">
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div>
-              <h2 className="text-base font-bold sm:text-lg text-slate-800">HistÃ³rico do caixa</h2>
+              <h2 className="text-lg font-bold text-slate-800">Histórico do caixa</h2>
               <p className="text-sm text-slate-500">
-                Recebimentos, pagamentos, distribuiÃ§Ãµes, bonificaÃ§Ãµes e ajustes.
+                Recebimentos, pagamentos, distribuições, bonificações e ajustes.
               </p>
             </div>
 
@@ -430,38 +430,38 @@ export default function CaixaPage() {
             <div className="p-10 text-center text-slate-500">Carregando...</div>
           ) : lancamentos.length === 0 ? (
             <div className="p-10 text-center text-slate-500">
-              Nenhum lanÃ§amento no caixa.
+              Nenhum lançamento no caixa.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">Data</th>
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">DescriÃ§Ã£o</th>
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">Tipo</th>
-                    <th className="px-3 sm:px-5 py-3 sm:py-4 text-right">Valor</th>
-                    <th className="px-3 sm:px-5 py-3 sm:py-4">ObservaÃ§Ã£o</th>
+                    <th className="px-5 py-4">Data</th>
+                    <th className="px-5 py-4">Descrição</th>
+                    <th className="px-5 py-4">Tipo</th>
+                    <th className="px-5 py-4 text-right">Valor</th>
+                    <th className="px-5 py-4">Observação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {lancamentos.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50">
-                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-slate-600">{dataBR(item.transaction_date)}</td>
-                      <td className="px-3 sm:px-5 py-3 sm:py-4 font-semibold text-slate-800">{item.description}</td>
-                      <td className="px-3 sm:px-5 py-3 sm:py-4">
+                      <td className="px-5 py-4 text-slate-600">{dataBR(item.transaction_date)}</td>
+                      <td className="px-5 py-4 font-semibold text-slate-800">{item.description}</td>
+                      <td className="px-5 py-4">
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
                           {tipoLabel(item.transaction_type)}
                         </span>
                       </td>
                       <td
-                        className={`px-3 sm:px-5 py-3 sm:py-4 text-right font-bold ${
+                        className={`px-5 py-4 text-right font-bold ${
                           item.direction === "entrada" ? "text-green-600" : "text-red-600"
                         }`}
                       >
                         {item.direction === "entrada" ? "+" : "-"} {moeda(item.amount)}
                       </td>
-                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-slate-500">{item.notes || "-"}</td>
+                      <td className="px-5 py-4 text-slate-500">{item.notes || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -473,4 +473,3 @@ export default function CaixaPage() {
     </main>
   );
 }
-

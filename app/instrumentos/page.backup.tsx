@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -62,7 +62,7 @@ export default function InstrumentosPage() {
     if (novoNome === null) return;
 
     if (!novoNome.trim()) {
-      alert("O nome nÃ£o pode ficar vazio.");
+      alert("O nome não pode ficar vazio.");
       return;
     }
 
@@ -107,8 +107,8 @@ export default function InstrumentosPage() {
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <header className="border-b bg-white px-3 sm:px-6 py-3 sm:py-5 md:px-10">
-        <h1 className="text-base font-bold sm:text-lg sm:text-xl sm:text-xl sm:text-2xl sm:text-3xl">
+      <header className="border-b bg-white px-6 py-5 md:px-10">
+        <h1 className="text-3xl font-bold">
           Instrumentos
         </h1>
 
@@ -117,16 +117,16 @@ export default function InstrumentosPage() {
         </p>
       </header>
 
-      <div className="mx-auto max-w-6xl p-3 sm:p-6 md:p-10">
+      <div className="mx-auto max-w-6xl p-6 md:p-10">
 
-        <section className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-6 shadow-sm">
-          <h2 className="text-base font-bold sm:text-lg sm:text-xl">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-bold">
             Novo instrumento
           </h2>
 
           <form
             onSubmit={adicionarInstrumento}
-            className="mt-6 flex flex-col gap-3 sm:p-4 md:flex-row"
+            className="mt-6 flex flex-col gap-4 md:flex-row"
           >
             <input
               value={nome}
@@ -137,16 +137,16 @@ export default function InstrumentosPage() {
 
             <button
               type="submit"
-              className="rounded-xl bg-[#751515] px-3 sm:px-6 py-3 font-semibold text-white hover:bg-[#5f1111]"
+              className="rounded-xl bg-[#751515] px-6 py-3 font-semibold text-white hover:bg-[#5f1111]"
             >
               + Adicionar instrumento
             </button>
           </form>
         </section>
 
-        <section className="mt-6 rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-6 shadow-sm">
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold sm:text-lg sm:text-xl">
+            <h2 className="text-xl font-bold">
               Instrumentos cadastrados
             </h2>
 
@@ -173,7 +173,7 @@ export default function InstrumentosPage() {
                     </th>
 
                     <th className="px-4 py-3 text-left">
-                      AÃ§Ãµes
+                      Ações
                     </th>
                   </tr>
                 </thead>
@@ -184,11 +184,11 @@ export default function InstrumentosPage() {
                       key={instrumento.id}
                       className="border-b last:border-0"
                     >
-                      <td className="px-4 py-3 sm:py-4 font-semibold">
+                      <td className="px-4 py-4 font-semibold">
                         {instrumento.name}
                       </td>
 
-                      <td className="px-4 py-3 sm:py-4">
+                      <td className="px-4 py-4">
                         <div className="flex gap-2">
                           <button
                             onClick={() =>
