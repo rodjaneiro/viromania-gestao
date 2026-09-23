@@ -976,9 +976,9 @@ export default function FechamentoPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-100 p-8">
+      <main className="min-h-screen bg-slate-100 p-3 sm:p-8">
         <div className="mx-auto max-w-7xl">
-          <div className="rounded-xl bg-white p-10 text-center shadow-sm">
+          <div className="rounded-xl bg-white p-5 text-center shadow-sm sm:p-10">
             Carregando fechamento...
           </div>
         </div>
@@ -987,18 +987,18 @@ export default function FechamentoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6 text-slate-800">
+    <main className="min-h-screen overflow-x-hidden bg-slate-100 p-3 text-slate-800 sm:p-6">
       <div className="mx-auto max-w-7xl">
 
         {/* HEADER */}
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div className="mb-4 flex flex-col items-stretch gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div>
-            <h1 className="text-3xl font-bold">
+            <h1 className="text-2xl font-bold sm:text-3xl">
               Fechamento semanal
             </h1>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 sm:text-sm">
               Conferência dos eventos, músicos,
               despesas, ensaio e resultado da semana.
             </p>
@@ -1006,7 +1006,7 @@ export default function FechamentoPage() {
 
           <a
             href="/"
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:w-auto sm:px-4"
           >
             Voltar ao início
           </a>
@@ -1015,25 +1015,25 @@ export default function FechamentoPage() {
         {/* MENSAGENS */}
 
         {mensagem && (
-          <div className="mb-5 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+          <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-xs font-semibold text-green-700 sm:mb-5 sm:p-4 sm:text-sm">
             {mensagem}
           </div>
         )}
 
         {erro && (
-          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700 sm:mb-5 sm:p-4 sm:text-sm">
             {erro}
           </div>
         )}
 
         {/* SEMANA */}
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+        <section className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:mb-6 sm:p-5">
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
 
             <button
               onClick={() => mudarSemana(-1)}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:w-auto sm:px-4"
             >
               ← Semana anterior
             </button>
@@ -1043,7 +1043,7 @@ export default function FechamentoPage() {
                 Semana
               </p>
 
-              <p className="text-xl font-bold">
+              <p className="text-base font-bold sm:text-xl">
                 {dataBR(semanaInicio)} até{" "}
                 {dataBR(semanaFim)}
               </p>
@@ -1058,7 +1058,7 @@ export default function FechamentoPage() {
 
             <button
               onClick={() => mudarSemana(1)}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:w-auto sm:px-4"
             >
               Próxima semana →
             </button>
@@ -1068,7 +1068,7 @@ export default function FechamentoPage() {
 
         {/* RESUMO */}
 
-        <section className="mb-6 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <section className="mb-4 grid grid-cols-2 gap-2 sm:mb-6 sm:gap-4 md:grid-cols-2 lg:grid-cols-5">
 
           <Card
             titulo="Confirmado"
@@ -1099,14 +1099,14 @@ export default function FechamentoPage() {
 
         {/* RESULTADO */}
 
-        <section id="resultado-semana" className="mb-6 rounded-xl bg-slate-900 p-6 text-white shadow-sm">
+        <section id="resultado-semana" className="mb-4 rounded-xl bg-slate-900 p-4 text-white shadow-sm sm:mb-6 sm:p-6">
 
           <div className="mb-6">
             <p className="text-sm text-slate-400">
               Resultado líquido da semana
             </p>
 
-            <p className="mt-1 text-4xl font-bold">
+            <p className="mt-1 text-3xl font-bold sm:text-4xl">
               {moeda(resultadoLiquido)}
             </p>
 
@@ -1116,9 +1116,9 @@ export default function FechamentoPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-2 sm:gap-4 md:grid-cols-3">
 
-            <div className="rounded-xl bg-white/10 p-5">
+            <div className="rounded-xl bg-white/10 p-3 sm:p-5">
               <p className="text-sm text-slate-300">
                 Rodrigo — 1/4
               </p>
@@ -1128,7 +1128,7 @@ export default function FechamentoPage() {
               </p>
             </div>
 
-            <div className="rounded-xl bg-white/10 p-5">
+            <div className="rounded-xl bg-white/10 p-3 sm:p-5">
               <p className="text-sm text-slate-300">
                 Marlon — 1/4
               </p>
@@ -1138,7 +1138,7 @@ export default function FechamentoPage() {
               </p>
             </div>
 
-            <div className="rounded-xl bg-white/10 p-5">
+            <div className="rounded-xl bg-white/10 p-3 sm:p-5">
               <p className="text-sm text-slate-300">
                 Caixa do grupo — 2/4
               </p>
@@ -1150,7 +1150,7 @@ export default function FechamentoPage() {
 
           </div>
 
-          <div className="mt-5 border-t border-white/10 pt-5 text-sm text-slate-400">
+          <div className="mt-4 border-t border-white/10 pt-4 text-xs text-slate-400 sm:mt-5 sm:pt-5 sm:text-sm">
             O resultado acima não inclui bonificação
             mensal. A bonificação é uma despesa separada
             do caixa do grupo no final do mês.
@@ -1162,14 +1162,14 @@ export default function FechamentoPage() {
 
         {/* EVENTOS */}
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+        <section className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm sm:mb-6">
 
-          <div className="border-b border-slate-200 p-5">
-            <h2 className="text-xl font-bold">
+          <div className="border-b border-slate-200 p-3 sm:p-5">
+            <h2 className="text-base font-bold sm:text-xl">
               Eventos da semana
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 sm:text-sm">
               Confirme quais eventos realmente aconteceram
               e confira suas receitas.
             </p>
@@ -1180,7 +1180,7 @@ export default function FechamentoPage() {
               Nenhum evento nesta semana.
             </div>
           ) : (
-            <div className="space-y-4 p-5">
+            <div className="space-y-3 p-3 sm:space-y-4 sm:p-5">
 
               {eventos.map((evento) => {
 
@@ -1226,11 +1226,11 @@ export default function FechamentoPage() {
                     className={`overflow-hidden rounded-2xl border-2 shadow-sm ${cardEventoClass}`}
                   >
 
-                    <div className={`flex flex-wrap items-center justify-between gap-4 p-5 ${cabecalhoEventoClass}`}>
+                    <div className={`flex flex-col items-stretch gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-5 ${cabecalhoEventoClass}`}>
 
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 sm:gap-4">
                         <div
-                          className={`flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border bg-white text-center shadow-sm ${
+                          className={`flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg border bg-white text-center shadow-sm sm:h-14 sm:w-14 sm:rounded-xl ${
                             eventoLapa
                               ? "border-blue-300 text-blue-800"
                               : eventoMiami
@@ -1245,7 +1245,7 @@ export default function FechamentoPage() {
                               weekday: "short",
                             }).replace(".", "")}
                           </span>
-                          <span className="text-xl font-extrabold leading-5">
+                          <span className="text-lg font-extrabold leading-5 sm:text-xl">
                             {evento.event_date.split("-")[2]}
                           </span>
                           <span className="text-[9px] font-semibold uppercase">
@@ -1259,7 +1259,7 @@ export default function FechamentoPage() {
 
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-lg font-extrabold text-slate-900">
+                            <h3 className="text-base font-extrabold text-slate-900 sm:text-lg">
                               {evento.name}
                             </h3>
 
@@ -1286,7 +1286,7 @@ export default function FechamentoPage() {
                         </div>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:flex">
 
                         <button
                           onClick={() =>
@@ -1295,7 +1295,7 @@ export default function FechamentoPage() {
                               "realizado"
                             )
                           }
-                          className={`rounded-lg px-3 py-2 text-xs font-bold ${
+                          className={`rounded-lg px-2 py-2 text-[11px] font-bold sm:px-3 sm:text-xs ${
                             evento.status ===
                             "realizado"
                               ? "bg-green-600 text-white"
@@ -1312,7 +1312,7 @@ export default function FechamentoPage() {
                               "nao_realizado"
                             )
                           }
-                          className={`rounded-lg px-3 py-2 text-xs font-bold ${
+                          className={`rounded-lg px-2 py-2 text-[11px] font-bold sm:px-3 sm:text-xs ${
                             evento.status ===
                             "nao_realizado"
                               ? "bg-red-600 text-white"
@@ -1325,29 +1325,29 @@ export default function FechamentoPage() {
                       </div>
                     </div>
 
-                    <div className="border-b border-slate-200 bg-white px-4 pt-3">
-                      <div className="grid grid-cols-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                    <div className="border-b border-slate-200 bg-white px-2 pt-2 sm:px-4 sm:pt-3">
+                      <div className="grid grid-cols-4 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                         <a
                           href={`#receitas-${evento.id}`}
-                          className="border-r border-slate-200 px-3 py-3 text-center text-xs font-bold text-slate-700 hover:bg-white"
+                          className="border-r border-slate-200 px-1 py-2 text-center text-[10px] font-bold text-slate-700 hover:bg-white sm:px-3 sm:py-3 sm:text-xs"
                         >
                           💰 Receitas
                         </a>
                         <a
                           href={`#musicos-${evento.id}`}
-                          className="border-r border-slate-200 px-3 py-3 text-center text-xs font-bold text-slate-700 hover:bg-white"
+                          className="border-r border-slate-200 px-1 py-2 text-center text-[10px] font-bold text-slate-700 hover:bg-white sm:px-3 sm:py-3 sm:text-xs"
                         >
                           🎵 Músicos
                         </a>
                         <a
                           href={`#despesas-${evento.id}`}
-                          className="border-r border-slate-200 px-3 py-3 text-center text-xs font-bold text-slate-700 hover:bg-white"
+                          className="border-r border-slate-200 px-1 py-2 text-center text-[10px] font-bold text-slate-700 hover:bg-white sm:px-3 sm:py-3 sm:text-xs"
                         >
                           🧾 Despesas
                         </a>
                         <a
                           href={`#resumo-${evento.id}`}
-                          className="px-3 py-3 text-center text-xs font-bold text-slate-700 hover:bg-white"
+                          className="px-1 py-2 text-center text-[10px] font-bold text-slate-700 hover:bg-white sm:px-3 sm:py-3 sm:text-xs"
                         >
                           📊 Resumo
                         </a>
@@ -1356,17 +1356,17 @@ export default function FechamentoPage() {
 
                     {evento.status ===
                       "nao_realizado" ? (
-                      <div className="p-5 text-sm text-red-600">
+                      <div className="p-3 text-xs text-red-600 sm:p-5 sm:text-sm">
                         Este evento não entra no
                         resultado da semana.
                       </div>
                     ) : (
-                      <div className="space-y-5 border-t border-white/70 bg-white/80 p-5">
+                      <div className="space-y-4 border-t border-white/70 bg-white/80 p-3 sm:space-y-5 sm:p-5">
 
                         {/* RECEITAS */}
 
                         <div id={`receitas-${evento.id}`}>
-                          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+                          <div className="mb-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                             <div>
                               <h4 className="text-base font-extrabold text-slate-800">
                                 Receitas do evento
@@ -1376,8 +1376,8 @@ export default function FechamentoPage() {
                               </p>
                             </div>
 
-                            <div className="flex gap-2">
-                              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-right">
+                            <div className="grid grid-cols-2 gap-2 sm:flex">
+                              <div className="flex-1 rounded-lg bg-emerald-50 px-2 py-2 text-right sm:px-3">
                                 <p className="text-[10px] font-bold uppercase text-emerald-600">
                                   Total previsto
                                 </p>
@@ -1391,7 +1391,7 @@ export default function FechamentoPage() {
                                 </p>
                               </div>
 
-                              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-right">
+                              <div className="flex-1 rounded-lg bg-emerald-50 px-2 py-2 text-right sm:px-3">
                                 <p className="text-[10px] font-bold uppercase text-emerald-600">
                                   Total recebido
                                 </p>
@@ -1430,9 +1430,9 @@ export default function FechamentoPage() {
                                   {receitasEvento.map((receita) => (
                                     <div
                                       key={receita.id}
-                                      className="p-4 hover:bg-slate-50/60"
+                                      className="p-3 hover:bg-slate-50/60 sm:p-4"
                                     >
-                                      <div className="grid gap-4 lg:grid-cols-[1.45fr_0.9fr_0.95fr_1fr_1fr_0.8fr] lg:items-center lg:gap-3">
+                                      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1.45fr_0.9fr_0.95fr_1fr_1fr_0.8fr] lg:items-center lg:gap-3">
                                         <div>
                                           <p className="font-bold text-slate-800">
                                             {receita.description}
@@ -1553,7 +1553,7 @@ export default function FechamentoPage() {
                                         </div>
                                       </div>
 
-                                      <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                                      <div className="mt-2 rounded-lg bg-slate-50 px-2 py-2 text-[11px] text-slate-500 sm:mt-3 sm:px-3 sm:text-xs">
                                         {receita.confirmed
                                           ? receita.status === "recebido"
                                             ? "Receita confirmada e recebida. O valor foi lançado automaticamente no Caixa."
@@ -1571,7 +1571,7 @@ export default function FechamentoPage() {
                         {/* MUSICOS */}
 
                         <div id={`musicos-${evento.id}`}>
-                          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                          <div className="mb-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                             <div>
                               <h4 className="font-bold">Músicos</h4>
                               <p className="text-xs text-slate-500">
@@ -1590,14 +1590,14 @@ export default function FechamentoPage() {
                                 setMusicoSelecionadoId("");
                                 setCacheMusicoNovo("");
                               }}
-                              className="rounded-lg bg-blue-100 px-4 py-2 text-xs font-bold text-blue-700 hover:bg-blue-200"
+                              className="w-full rounded-lg bg-blue-100 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-200 sm:w-auto sm:px-4"
                             >
                               + Adicionar músico
                             </button>
                           </div>
 
                           {eventoAdicionandoMusico === evento.id && (
-                            <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                            <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 sm:p-4">
                               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                                 <div>
                                   <label className="mb-1 block text-xs font-bold uppercase text-slate-500">
@@ -1617,7 +1617,7 @@ export default function FechamentoPage() {
                                         );
                                       }
                                     }}
-                                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm sm:px-3"
                                   >
                                     <option value="">Selecione...</option>
                                     {musicos.map((musico) => (
@@ -1642,7 +1642,7 @@ export default function FechamentoPage() {
                                     onChange={(e) =>
                                       setCacheMusicoNovo(e.target.value)
                                     }
-                                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm sm:px-3"
                                     placeholder="0,00"
                                   />
                                 </div>
@@ -1680,20 +1680,20 @@ export default function FechamentoPage() {
                               neste evento.
                             </div>
                           ) : (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-sm">
+                            <div className="overflow-x-auto -mx-1 px-1">
+                              <table className="w-full text-xs sm:text-sm">
                                 <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                                   <tr>
-                                    <th className="px-3 py-3">
+                                    <th className="px-2 py-2 sm:px-3 sm:py-3">
                                       Músico
                                     </th>
-                                    <th className="px-3 py-3">
+                                    <th className="px-2 py-2 sm:px-3 sm:py-3">
                                       Cachê
                                     </th>
-                                    <th className="px-3 py-3">
+                                    <th className="px-2 py-2 sm:px-3 sm:py-3">
                                       Pagamento
                                     </th>
-                                    <th className="px-3 py-3">
+                                    <th className="px-2 py-2 sm:px-3 sm:py-3">
                                       Ação
                                     </th>
                                   </tr>
@@ -1712,13 +1712,13 @@ export default function FechamentoPage() {
                                           }
                                         </td>
 
-                                        <td className="px-3 py-3">
+                                        <td className="px-2 py-2 sm:px-3 sm:py-3">
                                           {moeda(
                                             musico.event_cache
                                           )}
                                         </td>
 
-                                        <td className="px-3 py-3">
+                                        <td className="px-2 py-2 sm:px-3 sm:py-3">
                                           <span
                                             className={`rounded-full px-2 py-1 text-xs font-bold ${
                                               musico.payment_status ===
@@ -1734,14 +1734,14 @@ export default function FechamentoPage() {
                                           </span>
                                         </td>
 
-                                        <td className="px-3 py-3">
+                                        <td className="px-2 py-2 sm:px-3 sm:py-3">
                                           <button
                                             onClick={() =>
                                               alterarPagamento(
                                                 musico
                                               )
                                             }
-                                            className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold"
+                                            className="rounded-lg bg-slate-100 px-2 py-2 text-[11px] font-bold sm:px-3 sm:text-xs"
                                           >
                                             {musico.payment_status ===
                                             "pago"
@@ -1750,7 +1750,7 @@ export default function FechamentoPage() {
                                           </button> 
                                           <button
                                             onClick={() => removerMusicoDoEvento(musico)}
-                                            className="ml-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700"
+                                            className="mt-2 rounded-lg bg-red-50 px-2 py-2 text-[11px] font-bold text-red-700 sm:ml-2 sm:mt-0 sm:px-3 sm:text-xs"
                                           >
                                             Remover
                                           </button>
@@ -1816,7 +1816,7 @@ export default function FechamentoPage() {
                                       )}
                                     </div>
 
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2 sm:gap-3">
                                       <strong className="text-red-600">
                                         {moeda(
                                           despesa.amount
@@ -1845,7 +1845,7 @@ export default function FechamentoPage() {
                           id={`resumo-${evento.id}`}
                           className="rounded-xl border border-amber-200 bg-amber-50/70 p-4"
                         >
-                          <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                             <div>
                               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                                 Resultado do evento
@@ -1911,9 +1911,9 @@ export default function FechamentoPage() {
 
         {/* NOVA DESPESA */}
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:mb-6 sm:p-5">
 
-          <h2 className="text-xl font-bold">
+          <h2 className="text-base font-bold sm:text-xl">
             Adicionar despesa de evento
           </h2>
 
@@ -1922,7 +1922,7 @@ export default function FechamentoPage() {
             estacionamento ou qualquer outro custo.
           </p>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-2 sm:gap-4 md:grid-cols-3">
 
             <div>
               <label className="mb-1 block text-sm font-semibold">
@@ -1934,7 +1934,7 @@ export default function FechamentoPage() {
                 onChange={(e) =>
                   setEventoDespesa(e.target.value)
                 }
-                className="w-full rounded-lg border border-slate-300 px-3 py-3"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 sm:py-3"
               >
                 <option value="">
                   Selecione o evento
@@ -1969,7 +1969,7 @@ export default function FechamentoPage() {
                   )
                 }
                 placeholder="Ex.: Gasolina"
-                className="w-full rounded-lg border border-slate-300 px-3 py-3"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 sm:py-3"
               />
             </div>
 
@@ -1988,7 +1988,7 @@ export default function FechamentoPage() {
                   )
                 }
                 placeholder="0,00"
-                className="w-full rounded-lg border border-slate-300 px-3 py-3"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 sm:py-3"
               />
             </div>
 
@@ -2010,24 +2010,24 @@ export default function FechamentoPage() {
 
         {/* ENSAIO */}
 
-        <section className="mb-6 rounded-xl border border-purple-200 bg-white shadow-sm">
+        <section className="mb-4 rounded-xl border border-purple-200 bg-white shadow-sm sm:mb-6">
 
-          <div className="border-b border-purple-100 bg-purple-50 p-5">
+          <div className="border-b border-purple-100 bg-purple-50 p-3 sm:p-5">
 
-            <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
 
               <div>
-                <h2 className="text-xl font-bold">
+                <h2 className="text-base font-bold sm:text-xl">
                   🎵 Ensaio da semana
                 </h2>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-xs text-slate-500 sm:text-sm">
                   Quinta-feira —{" "}
                   {dataBR(dataEnsaio)}
                 </p>
               </div>
 
-              <div className="rounded-lg bg-white px-4 py-2 text-sm font-bold shadow-sm">
+              <div className="self-start rounded-lg bg-white px-3 py-2 text-xs font-bold shadow-sm sm:px-4 sm:text-sm">
                 {presentes} presentes
               </div>
 
@@ -2035,9 +2035,9 @@ export default function FechamentoPage() {
 
           </div>
 
-          <div className="p-5">
+          <div className="p-3 sm:p-5">
 
-            <div className="mb-5 flex flex-wrap items-center gap-3">
+            <div className="mb-4 flex flex-col items-stretch gap-2 sm:mb-5 sm:flex-row sm:items-center sm:gap-3">
 
               <span className="text-sm font-semibold">
                 O ensaio aconteceu?
@@ -2047,7 +2047,7 @@ export default function FechamentoPage() {
                 onClick={() =>
                   alterarEnsaio(true)
                 }
-                className={`rounded-lg px-4 py-2 text-sm font-bold ${
+                className={`w-full rounded-lg px-3 py-2 text-xs font-bold sm:w-auto sm:px-4 sm:text-sm ${
                   teveEnsaio
                     ? "bg-purple-600 text-white"
                     : "bg-purple-50 text-purple-700"
@@ -2060,7 +2060,7 @@ export default function FechamentoPage() {
                 onClick={() =>
                   alterarEnsaio(false)
                 }
-                className={`rounded-lg px-4 py-2 text-sm font-bold ${
+                className={`w-full rounded-lg px-3 py-2 text-xs font-bold sm:w-auto sm:px-4 sm:text-sm ${
                   !teveEnsaio
                     ? "bg-slate-700 text-white"
                     : "bg-slate-100 text-slate-700"
@@ -2073,14 +2073,14 @@ export default function FechamentoPage() {
 
             {teveEnsaio && rehearsalId && (
               <>
-                <div className="mb-4 rounded-lg bg-slate-50 p-4">
+                <div className="mb-4 rounded-lg bg-slate-50 p-3 sm:p-4">
                   <p className="text-sm text-slate-500">
                     Marque os músicos que
                     participaram do ensaio.
                   </p>
                 </div>
 
-                <div className="grid gap-2 md:grid-cols-2">
+                <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-2">
 
                   {musicos.map((musico) => {
 
@@ -2097,7 +2097,7 @@ export default function FechamentoPage() {
                             musico.id
                           )
                         }
-                        className={`flex items-center justify-between rounded-lg border p-4 text-left ${
+                        className={`flex items-center justify-between rounded-lg border p-3 text-left sm:p-4 ${
                           presente
                             ? "border-green-300 bg-green-50"
                             : "border-slate-200 bg-white"
@@ -2126,12 +2126,12 @@ export default function FechamentoPage() {
 
                 </div>
 
-                <div className="mt-5 flex justify-end">
+                <div className="mt-4 flex justify-end sm:mt-5">
 
                   <button
                     onClick={salvarPresencas}
                     disabled={saving}
-                    className="rounded-lg bg-purple-600 px-5 py-3 font-bold text-white disabled:opacity-50"
+                    className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50 sm:w-auto sm:px-5 sm:py-3"
                   >
                     {saving
                       ? "Salvando..."
@@ -2154,7 +2154,7 @@ export default function FechamentoPage() {
 
         {/* PAGAMENTO DA DISTRIBUIÇÃO */}
 
-        <section className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+        <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 shadow-sm sm:mb-6 sm:p-5">
           <div className="mb-4">
             <h2 className="text-lg font-bold text-slate-800">
               Pagamento da distribuição
@@ -2165,7 +2165,7 @@ export default function FechamentoPage() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="font-bold">Rodrigo</p>
@@ -2189,7 +2189,7 @@ export default function FechamentoPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="font-bold">Marlon</p>
@@ -2217,12 +2217,12 @@ export default function FechamentoPage() {
 
         {/* SALVAR */}
 
-        <div className="mb-10 flex justify-end">
+        <div className="mb-8 flex justify-stretch sm:mb-10 sm:justify-end">
 
           <button
             onClick={salvarFechamento}
             disabled={saving}
-            className="rounded-lg bg-green-600 px-7 py-3 font-bold text-white shadow-sm disabled:opacity-50"
+            className="w-full rounded-lg bg-green-600 px-5 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 sm:w-auto sm:px-7"
           >
             {saving
               ? "Salvando..."
@@ -2244,12 +2244,12 @@ function Card({
   valor: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5">
       <p className="text-sm font-semibold text-slate-500">
         {titulo}
       </p>
 
-      <p className="mt-2 text-2xl font-bold text-slate-800">
+      <p className="mt-1 text-xl font-bold text-slate-800 sm:mt-2 sm:text-2xl">
         {valor}
       </p>
     </div>
