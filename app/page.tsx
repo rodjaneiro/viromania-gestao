@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 const modulos = [
   { href: "/eventos", titulo: "Eventos", descricao: "Shows e agenda", icon: "📅" },
@@ -15,36 +16,111 @@ const modulos = [
 
 export default function Home() {
   const [foto, setFoto] = useState("/viromania-logo.png");
+  const [carregando, setCarregando] = useState(true);
+  const [enviando, setEnviando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const salva = localStorage.getItem("viromania_foto");
-    if (salva) setFoto(salva);
+    async function carregarConfiguracao() {
+      const { data, error } = await supabase
+        .from("band_settings")
+        .select("logo_url")
+        .eq("id", 1)
+        .single();
+
+      if (!error && data?.logo_url) {
+        setFoto(`${data.logo_url}?v=${Date.now()}`);
+      }
+
+      setCarregando(false);
+    }
+
+    carregarConfiguracao();
   }, []);
 
-  function alterarFoto(file?: File) {
+  async function alterarFoto(file?: File) {
     if (!file) return;
 
-    const reader = new FileReader();
+    if (!file.type.startsWith("image/")) {
+      alert("Selecione uma imagem.");
+      return;
+    }
 
-    reader.onload = () => {
-      const imagem = String(reader.result);
-      setFoto(imagem);
-      localStorage.setItem("viromania_foto", imagem);
-    };
+    if (file.size > 5 * 1024 * 1024) {
+      alert("A imagem deve ter no máximo 5 MB.");
+      return;
+    }
 
-    reader.readAsDataURL(file);
+    try {
+      setEnviando(true);
+
+      const extensao = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const caminho = `logo/banda-logo.${extensao}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("band-assets")
+        .upload(caminho, file, {
+          upsert: true,
+          cacheControl: "3600",
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: publicData } = supabase.storage
+        .from("band-assets")
+        .getPublicUrl(caminho);
+
+      if (!publicData?.publicUrl) {
+        throw new Error("Não foi possível obter a URL da imagem.");
+      }
+
+      const { error: updateError } = await supabase
+        .from("band_settings")
+        .upsert(
+          {
+            id: 1,
+            name: "ViroMania",
+            logo_url: publicData.publicUrl,
+          },
+          {
+            onConflict: "id",
+          }
+        );
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setFoto(`${publicData.publicUrl}?v=${Date.now()}`);
+
+      alert("Foto da ViroMania atualizada com sucesso!");
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível atualizar a foto.");
+    } finally {
+      setEnviando(false);
+
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+    }
   }
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-5 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-5xl">
+
         <header className="mb-6 flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:mb-8 sm:p-6">
+
           <button
             type="button"
-            onClick={() => inputRef.current?.click()}
+            onClick={() => !enviando && inputRef.current?.click()}
             className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 sm:h-24 sm:w-24"
             title="Alterar foto"
+            disabled={enviando}
           >
             <img
               src={foto}
@@ -53,7 +129,7 @@ export default function Home() {
             />
 
             <span className="absolute inset-0 hidden items-center justify-center bg-black/40 text-xs font-bold text-white group-hover:flex">
-              Alterar
+              {enviando ? "Enviando..." : "Alterar"}
             </span>
           </button>
 
@@ -75,12 +151,18 @@ export default function Home() {
             </p>
 
             <p className="mt-1 text-xs text-slate-400">
-              Toque na foto para alterar
+              {carregando
+                ? "Carregando..."
+                : enviando
+                ? "Atualizando foto..."
+                : "Toque na foto para alterar"}
             </p>
           </div>
+
         </header>
 
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4">
+
           {modulos.map((modulo) => (
             <Link
               key={modulo.href}
@@ -100,7 +182,9 @@ export default function Home() {
               </p>
             </Link>
           ))}
+
         </section>
+
       </div>
     </main>
   );
