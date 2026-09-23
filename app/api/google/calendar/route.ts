@@ -45,9 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     /*
-     * EVITA DUPLICAÇÃO
-     * Se esse evento já foi enviado para o Google,
-     * não cria outro.
+     * VERIFICA SE JÁ FOI SINCRONIZADO
      */
     const { data: existente, error: existenteError } = await supabase
       .from("google_calendar_events")
@@ -119,6 +117,55 @@ export async function POST(request: NextRequest) {
     }
 
     /*
+     * BUSCA O SINAL DO EVENTO
+     */
+    let valorSinal = 0;
+    let dataPagamentoSinal: string | null = null;
+
+    const { data: receitas, error: receitasError } = await supabase
+      .from("event_revenues")
+      .select("id")
+      .eq("event_id", eventId);
+
+    if (receitasError) {
+      console.error("Erro ao buscar receitas:", receitasError);
+    }
+
+    if (receitas && receitas.length > 0) {
+      const receitaIds = receitas.map((receita) => receita.id);
+
+      const { data: sinal, error: sinalError } = await supabase
+        .from("event_revenue_receipts")
+        .select(
+          "expected_amount,actual_amount,expected_receipt_date,actual_receipt_date,status,description"
+        )
+        .in("event_revenue_id", receitaIds)
+        .eq("description", "Sinal")
+        .maybeSingle();
+
+      if (sinalError) {
+        console.error("Erro ao buscar sinal:", sinalError);
+      }
+
+      if (sinal) {
+        valorSinal = Number(
+          sinal.actual_amount || sinal.expected_amount || 0
+        );
+
+        /*
+         * Só mostra a data se o sinal realmente existir
+         * e tiver uma data de pagamento.
+         */
+        if (valorSinal > 0) {
+          dataPagamentoSinal =
+            sinal.actual_receipt_date ||
+            sinal.expected_receipt_date ||
+            null;
+        }
+      }
+    }
+
+    /*
      * GOOGLE OAUTH
      */
     const oauth2Client = new google.auth.OAuth2(
@@ -141,35 +188,65 @@ export async function POST(request: NextRequest) {
     });
 
     /*
-     * DATA
+     * VALOR TOTAL
      */
-    const data = String(evento.event_date).slice(0, 10);
+    const valorTotal = Number(evento.expected_amount || 0);
 
-    /*
-     * VALOR
-     */
-    const valor = Number(evento.expected_amount || 0);
-
-    const valorFormatado = valor.toLocaleString("pt-BR", {
+    const valorTotalFormatado = valorTotal.toLocaleString("pt-BR", {
       style: "currency",
       currency: "BRL",
     });
 
     /*
-     * DESCRIÇÃO COMPLETA
+     * VALOR DO SINAL
+     */
+    const valorSinalFormatado = valorSinal.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+    /*
+     * DATA DO PAGAMENTO DO SINAL
+     */
+    let dataSinalFormatada = "";
+
+    if (dataPagamentoSinal) {
+      const data = String(dataPagamentoSinal).slice(0, 10);
+
+      if (data) {
+        dataSinalFormatada = data
+          .split("-")
+          .reverse()
+          .join("/");
+      }
+    }
+
+    /*
+     * DESCRIÇÃO DO EVENTO
      */
     const descricao = [
       "🎵 VIROMANIA",
       "",
-      `💰 Valor do evento: ${valorFormatado}`,
-      `📅 Data: ${data.split("-").reverse().join("/")}`,
+      `💰 Valor total: ${valorTotalFormatado}`,
+      valorSinal > 0
+        ? `💵 Sinal: ${valorSinalFormatado}`
+        : "",
+      valorSinal > 0 && dataSinalFormatada
+        ? `📅 Pagamento do sinal: ${dataSinalFormatada}`
+        : "",
       evento.event_time
         ? `🕐 Horário: ${String(evento.event_time).slice(0, 5)}`
         : "🕐 Horário: Não informado",
-      evento.location ? `📍 Local: ${evento.location}` : "",
-      evento.status ? `📌 Status: ${evento.status}` : "",
+      evento.location
+        ? `📍 Local: ${evento.location}`
+        : "",
+      evento.status
+        ? `📌 Status: ${evento.status}`
+        : "",
       "",
-      evento.notes ? `📝 Observações: ${evento.notes}` : "",
+      evento.notes
+        ? `📝 Observações: ${evento.notes}`
+        : "",
       "",
       "Evento cadastrado pelo ViroMania Gestão.",
     ]
@@ -182,9 +259,12 @@ export async function POST(request: NextRequest) {
      * EVENTO COM HORÁRIO
      */
     if (evento.event_time) {
+      const data = String(evento.event_date).slice(0, 10);
       const hora = String(evento.event_time).slice(0, 8);
 
-      const inicioDate = new Date(`${data}T${hora}-03:00`);
+      const inicioDate = new Date(
+        `${data}T${hora}-03:00`
+      );
 
       if (Number.isNaN(inicioDate.getTime())) {
         return NextResponse.json(
@@ -198,7 +278,7 @@ export async function POST(request: NextRequest) {
       }
 
       /*
-       * Duração padrão de 3 horas
+       * DURAÇÃO PADRÃO: 3 HORAS
        */
       const fimDate = new Date(
         inicioDate.getTime() + 3 * 60 * 60 * 1000
@@ -212,7 +292,7 @@ export async function POST(request: NextRequest) {
         description: descricao,
 
         /*
-         * COR SÁLVIA DO GOOGLE CALENDAR
+         * SÁLVIA
          */
         colorId: "2",
 
@@ -230,7 +310,11 @@ export async function POST(request: NextRequest) {
       /*
        * EVENTO DE DIA INTEIRO
        */
-      const inicioDate = new Date(`${data}T00:00:00-03:00`);
+      const data = String(evento.event_date).slice(0, 10);
+
+      const inicioDate = new Date(
+        `${data}T00:00:00-03:00`
+      );
 
       if (Number.isNaN(inicioDate.getTime())) {
         return NextResponse.json(
@@ -254,7 +338,7 @@ export async function POST(request: NextRequest) {
         description: descricao,
 
         /*
-         * COR SÁLVIA DO GOOGLE CALENDAR
+         * SÁLVIA
          */
         colorId: "2",
 
@@ -269,7 +353,7 @@ export async function POST(request: NextRequest) {
     }
 
     /*
-     * CRIA EVENTO NO GOOGLE
+     * CRIA NO GOOGLE CALENDAR
      */
     const googleEvent = await calendar.events.insert({
       calendarId: "primary",
@@ -277,11 +361,13 @@ export async function POST(request: NextRequest) {
     });
 
     if (!googleEvent.data.id) {
-      throw new Error("Google não retornou o ID do evento.");
+      throw new Error(
+        "Google não retornou o ID do evento."
+      );
     }
 
     /*
-     * SALVA O VÍNCULO ENTRE VIROMANIA E GOOGLE
+     * SALVA O VÍNCULO
      */
     const { error: mappingError } = await supabase
       .from("google_calendar_events")
