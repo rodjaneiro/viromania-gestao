@@ -24,3 +24,104 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+@media (max-width: 767px) {
+  .eventos-table {
+    display: block;
+    width: 100%;
+  }
+
+  .eventos-table thead {
+    display: none;
+  }
+
+  .eventos-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .eventos-table tr {
+    display: block;
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: white;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  }
+
+  .eventos-table td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 0;
+    border: 0;
+  }
+
+  .eventos-table td::before {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #94a3b8;
+  }
+
+  .eventos-table td:nth-child(1)::before {
+    content: "Evento";
+  }
+
+  .eventos-table td:nth-child(2)::before {
+    content: "Data";
+  }
+
+  .eventos-table td:nth-child(3)::before {
+    content: "Horário";
+  }
+
+  .eventos-table td:nth-child(4)::before {
+    content: "Valor";
+  }
+
+  .eventos-table td:nth-child(5)::before {
+    content: "Recebimento";
+  }
+
+  .eventos-table td:nth-child(6)::before {
+    content: "Status";
+  }
+
+  .eventos-table td:nth-child(7)::before {
+    content: "Ações";
+  }
+
+  .eventos-table td:nth-child(7) {
+    display: block;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .eventos-table td:nth-child(7)::before {
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .eventos-table td:nth-child(7) > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .eventos-table td:nth-child(7) button {
+    width: 100%;
+  }
+
+  .eventos-table td:nth-child(7) button:last-child {
+    grid-column: span 2;
+  }
+
+  .eventos-table select {
+    max-width: 150px;
+  }
+}
