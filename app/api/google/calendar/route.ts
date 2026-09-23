@@ -285,7 +285,7 @@ export async function POST(request: NextRequest) {
       );
 
       requestBody = {
-        summary: `ViroMania — ${evento.name}`,
+        summary: evento.name,
 
         location: evento.location || undefined,
 
