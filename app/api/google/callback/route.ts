@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     try {
       const tokenInfo = await oauth2Client.getTokenInfo(tokens.access_token);
-      googleEmail = tokenInfo.data.email ?? null;
+      googleEmail = tokenInfo.email ?? null;
     } catch (error) {
       console.error("Não foi possível obter email Google:", error);
     }
@@ -126,3 +126,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
