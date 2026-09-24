@@ -117,6 +117,28 @@ type LinhaMusico = {
   quantidadeBonus: number;
 };
 
+
+function musicoEhFixo(musico: Musico | undefined) {
+  const tipo = String(musico?.type || "")
+    .trim()
+    .toLowerCase();
+
+  const nome = String(musico?.name || "")
+    .trim()
+    .toLowerCase();
+
+  const nomesFreelancers = new Set([
+    "joão vitor",
+    "ronaldo",
+    "wiglis",
+  ]);
+
+  return (
+    tipo === "fixo" &&
+    !nomesFreelancers.has(nome)
+  );
+}
+
 function moeda(valor: number) {
   return Number(valor || 0).toLocaleString("pt-BR", {
     style: "currency",
@@ -857,23 +879,7 @@ setFechamentos(
        * Inicializa todos os músicos
        */
 
-      const nomesFreelancers = new Set([
-        "joão vitor",
-        "ronaldo",
-        "wiglis",
-      ]);
-
-      const musicosFixos = musicos.filter((musico) => {
-        const tipo = String(musico.type || "")
-          .trim()
-          .toLowerCase();
-
-        const nome = String(musico.name || "")
-          .trim()
-          .toLowerCase();
-
-        return tipo === "fixo" && !nomesFreelancers.has(nome);
-      });
+      const musicosFixos = musicos.filter(musicoEhFixo);
 
       for (const musico of musicosFixos) {
         mapa.set(musico.id, {
@@ -899,10 +905,7 @@ setFechamentos(
           (m) => m.id === item.musician_id
         );
 
-        if (
-          !musico ||
-          String(musico.type || "").toLowerCase() !== "fixo"
-        ) {
+        if (!musicoEhFixo(musico)) {
           continue;
         }
 
@@ -993,10 +996,7 @@ setFechamentos(
           (m) => m.id === presenca.musician_id
         );
 
-        if (
-          !musico ||
-          String(musico.type || "").toLowerCase() !== "fixo"
-        ) {
+        if (!musicoEhFixo(musico)) {
           continue;
         }
 
@@ -1037,10 +1037,7 @@ setFechamentos(
           (m) => m.id === premio.musician_id
         );
 
-        if (
-          !musico ||
-          String(musico.type || "").toLowerCase() !== "fixo"
-        ) {
+        if (!musicoEhFixo(musico)) {
           continue;
         }
 
