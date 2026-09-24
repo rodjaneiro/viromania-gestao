@@ -32,6 +32,7 @@ type MusicoEvento = {
 type Musico = {
   id: string;
   name: string;
+  type: string;
 };
 
 type InstrumentoEvento = {
@@ -319,7 +320,7 @@ export default function RelatoriosPage() {
 
         supabase
           .from("musicians")
-          .select("id,name")
+          .select("id,name,type")
           .order("name"),
 
         supabase
@@ -856,7 +857,25 @@ setFechamentos(
        * Inicializa todos os músicos
        */
 
-      for (const musico of musicos) {
+      const nomesFreelancers = new Set([
+        "joão vitor",
+        "ronaldo",
+        "wiglis",
+      ]);
+
+      const musicosFixos = musicos.filter((musico) => {
+        const tipo = String(musico.type || "")
+          .trim()
+          .toLowerCase();
+
+        const nome = String(musico.name || "")
+          .trim()
+          .toLowerCase();
+
+        return tipo === "fixo" && !nomesFreelancers.has(nome);
+      });
+
+      for (const musico of musicosFixos) {
         mapa.set(musico.id, {
           datas: new Set(),
           eventos: 0,
@@ -876,6 +895,17 @@ setFechamentos(
        */
 
       for (const item of musicosDoPeriodo) {
+        const musico = musicos.find(
+          (m) => m.id === item.musician_id
+        );
+
+        if (
+          !musico ||
+          String(musico.type || "").toLowerCase() !== "fixo"
+        ) {
+          continue;
+        }
+
         const evento = eventos.find(
           (e) =>
             e.id === item.event_id
@@ -959,6 +989,17 @@ setFechamentos(
       for (const presenca of presencasEnsaio) {
         if (!presenca.present) continue;
 
+        const musico = musicos.find(
+          (m) => m.id === presenca.musician_id
+        );
+
+        if (
+          !musico ||
+          String(musico.type || "").toLowerCase() !== "fixo"
+        ) {
+          continue;
+        }
+
         if (!mapa.has(
           presenca.musician_id
         )) {
@@ -992,6 +1033,17 @@ setFechamentos(
        */
 
       for (const premio of premiosBonificacao) {
+        const musico = musicos.find(
+          (m) => m.id === premio.musician_id
+        );
+
+        if (
+          !musico ||
+          String(musico.type || "").toLowerCase() !== "fixo"
+        ) {
+          continue;
+        }
+
         if (!mapa.has(
           premio.musician_id
         )) {
