@@ -37,6 +37,12 @@ type Recebimento = {
   status: string;
 };
 
+type Evento = { id: string; event_date: string; status: string };
+type ReceitaEvento = { event_id: string; actual_amount: number; expected_amount: number; confirmed: boolean; status: string };
+type MusicoEvento = { event_id: string; event_cache: number };
+type DespesaEvento = { event_id: string; amount: number };
+
+
 const tipos = [
   { value: "receita", label: "Receita" },
   { value: "despesa", label: "Despesa" },
@@ -84,6 +90,10 @@ export default function CaixaPage() {
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   const [fechamentos, setFechamentos] = useState<Fechamento[]>([]);
+  const [eventos, setEventos] = useState<Evento[]>([]);
+  const [receitasEventos, setReceitasEventos] = useState<ReceitaEvento[]>([]);
+  const [musicosEventos, setMusicosEventos] = useState<MusicoEvento[]>([]);
+  const [despesasEventos, setDespesasEventos] = useState<DespesaEvento[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
 
@@ -114,6 +124,10 @@ export default function CaixaPage() {
         lancamentosRes,
         recebimentosRes,
         fechamentosRes,
+        eventosRes,
+        receitasEventosRes,
+        musicosEventosRes,
+        despesasEventosRes,
       ] = await Promise.all([
         supabase
           .from("cash_setup")
@@ -141,12 +155,28 @@ export default function CaixaPage() {
             "week_start,week_end,total_musicians,total_other_expenses,rodrigo_amount,marlon_amount,group_cash_amount"
           )
           .order("week_end", { ascending: true }),
+
+        supabase.from("events").select("id,event_date,status"),
+        supabase.from("event_revenues").select("event_id,actual_amount,expected_amount,confirmed,status"),
+        supabase.from("event_musicians").select("event_id,event_cache"),
+        supabase.from("event_expenses").select("event_id,amount"),
       ]);
 
       if (configRes.error) throw configRes.error;
       if (lancamentosRes.error) throw lancamentosRes.error;
       if (recebimentosRes.error) throw recebimentosRes.error;
       if (fechamentosRes.error) throw fechamentosRes.error;
+      if (eventosRes.error) throw eventosRes.error;
+      if (receitasEventosRes.error) throw receitasEventosRes.error;
+      if (musicosEventosRes.error) throw musicosEventosRes.error;
+      if (despesasEventosRes.error) throw despesasEventosRes.error;
+
+      setEventos((eventosRes.data || []) as Evento[]);
+      setReceitasEventos((receitasEventosRes.data || []).map((x: any) => ({
+        event_id: x.event_id, actual_amount: Number(x.actual_amount || 0), expected_amount: Number(x.expected_amount || 0), confirmed: Boolean(x.confirmed), status: x.status || "pendente",
+      })));
+      setMusicosEventos((musicosEventosRes.data || []).map((x: any) => ({ event_id: x.event_id, event_cache: Number(x.event_cache || 0) })));
+      setDespesasEventos((despesasEventosRes.data || []).map((x: any) => ({ event_id: x.event_id, amount: Number(x.amount || 0) })));
 
       if (configRes.data) {
         const c: CaixaConfig = {
@@ -226,15 +256,47 @@ export default function CaixaPage() {
     config?.start_date ||
     "1900-01-01";
 
-  const fechamentosConsiderados = useMemo(
-    () =>
-      fechamentos.filter(
-        (f) =>
-          f.week_end >= (config?.start_date || "1900-01-01") &&
-          f.week_end <= limiteFinanceiro
-      ),
-    [fechamentos, config, limiteFinanceiro]
-  );
+  const fechamentosConsiderados = useMemo(() => {
+    const inicioCaixa = config?.start_date || "1900-01-01";
+    const segundaDaSemana = (data: string) => {
+      const d = new Date(`${data}T12:00:00`);
+      const dia = d.getDay();
+      d.setDate(d.getDate() + (dia === 0 ? -6 : 1 - dia));
+      return d.toISOString().slice(0, 10);
+    };
+    const domingoDaSemana = (inicio: string) => {
+      const d = new Date(`${inicio}T12:00:00`);
+      d.setDate(d.getDate() + 6);
+      return d.toISOString().slice(0, 10);
+    };
+
+    return fechamentos
+      .filter((f) => f.week_end >= inicioCaixa && f.week_end <= limiteFinanceiro)
+      .map((f) => {
+        const eventosSemana = eventos.filter(
+          (e) => e.event_date >= f.week_start && e.event_date <= f.week_end && e.status === "realizado"
+        );
+        const ids = new Set(eventosSemana.map((e) => e.id));
+        const receita = receitasEventos
+          .filter((r) => ids.has(r.event_id) && r.confirmed && r.status !== "cancelado")
+          .reduce((sum, r) => sum + Number(r.actual_amount || r.expected_amount || 0), 0);
+        const musicos = musicosEventos
+          .filter((m) => ids.has(m.event_id))
+          .reduce((sum, m) => sum + Number(m.event_cache || 0), 0);
+        const despesas = despesasEventos
+          .filter((d) => ids.has(d.event_id))
+          .reduce((sum, d) => sum + Number(d.amount || 0), 0);
+        const resultado = receita - musicos - despesas;
+        return {
+          ...f,
+          total_musicians: musicos,
+          total_other_expenses: despesas,
+          rodrigo_amount: resultado > 0 ? resultado / 4 : 0,
+          marlon_amount: resultado > 0 ? resultado / 4 : 0,
+          group_cash_amount: resultado > 0 ? resultado / 2 : 0,
+        };
+      });
+  }, [fechamentos, config, limiteFinanceiro, eventos, receitasEventos, musicosEventos, despesasEventos]);
 
   const recebimentosConsiderados = useMemo(
     () =>

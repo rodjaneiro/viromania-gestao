@@ -42,6 +42,22 @@ type Recebimento = {
   status: string;
 };
 
+type ReceitaEvento = {
+  id: string;
+  event_id: string;
+  expected_amount: number;
+  actual_amount: number;
+  confirmed: boolean;
+  status: string;
+};
+
+type DespesaEvento = {
+  id: string;
+  event_id: string;
+  amount: number;
+};
+
+
 type Lancamento = {
   id: string;
   transaction_date: string;
@@ -118,6 +134,8 @@ export default function PagamentosPage() {
   const [fechamento, setFechamento] = useState<Fechamento | null>(null);
   const [fechamentos, setFechamentos] = useState<Fechamento[]>([]);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
+  const [receitasEventos, setReceitasEventos] = useState<ReceitaEvento[]>([]);
+  const [despesasEventos, setDespesasEventos] = useState<DespesaEvento[]>([]);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [saldoInicialCaixa, setSaldoInicialCaixa] = useState(0);
   const [dataInicioCaixa, setDataInicioCaixa] = useState("1900-01-01");
@@ -259,6 +277,30 @@ export default function PagamentosPage() {
         }))
       );
 
+      if (idsEventos.length > 0) {
+        const [receitasSemanaRes, despesasSemanaRes] = await Promise.all([
+          supabase
+            .from("event_revenues")
+            .select("id,event_id,expected_amount,actual_amount,confirmed,status")
+            .in("event_id", idsEventos),
+          supabase
+            .from("event_expenses")
+            .select("id,event_id,amount")
+            .in("event_id", idsEventos),
+        ]);
+        if (receitasSemanaRes.error) throw receitasSemanaRes.error;
+        if (despesasSemanaRes.error) throw despesasSemanaRes.error;
+        setReceitasEventos((receitasSemanaRes.data || []).map((r: any) => ({
+          ...r, expected_amount: Number(r.expected_amount || 0), actual_amount: Number(r.actual_amount || 0), confirmed: Boolean(r.confirmed),
+        })));
+        setDespesasEventos((despesasSemanaRes.data || []).map((d: any) => ({
+          id: d.id, event_id: d.event_id, amount: Number(d.amount || 0),
+        })));
+      } else {
+        setReceitasEventos([]);
+        setDespesasEventos([]);
+      }
+
       setParticipacoes(
         participacoesData.map((item: any) => ({
           id: item.id,
@@ -291,6 +333,26 @@ export default function PagamentosPage() {
    * - semana selecionada, se ela estiver fechada;
    * - último fechamento salvo, se a semana estiver aberta.
    */
+  const resultadoSemanaCalculado = useMemo(() => {
+    const eventosRealizados = new Set(
+      participacoes.map((p) => p.event_id)
+    );
+    // Participações existem apenas para eventos realizados; ainda assim, usamos
+    // as receitas e o status do evento como fonte oficial do valor do evento.
+    const valorEventos = receitasEventos
+      .filter((r) => r.confirmed && r.status !== "cancelado")
+      .reduce((total, r) => total + Number(r.actual_amount || r.expected_amount || 0), 0);
+    const musicos = participacoes.reduce((total, p) => total + Number(p.event_cache || 0), 0);
+    const despesas = despesasEventos.reduce((total, d) => total + Number(d.amount || 0), 0);
+    return {
+      valorEventos,
+      musicos,
+      despesas,
+      resultado: valorEventos - musicos - despesas,
+      socio: Math.max(0, valorEventos - musicos - despesas) / 4,
+    };
+  }, [receitasEventos, despesasEventos, participacoes]);
+
   const ultimoFechamento = useMemo(
     () =>
       [...fechamentos]
@@ -303,15 +365,27 @@ export default function PagamentosPage() {
     ? semanaFim
     : ultimoFechamento?.week_end || dataInicioCaixa;
 
-  const fechamentosConsiderados = useMemo(
-    () =>
-      fechamentos.filter(
+  const fechamentosConsiderados = useMemo(() => {
+    return fechamentos
+      .filter(
         (f) =>
           f.week_end >= dataInicioCaixa &&
           f.week_end <= limiteFinanceiro
-      ),
-    [fechamentos, dataInicioCaixa, limiteFinanceiro]
-  );
+      )
+      .map((f) => {
+        if (f.week_start === semanaInicio && f.week_end === semanaFim && fechamento) {
+          return {
+            ...f,
+            total_musicians: resultadoSemanaCalculado.musicos,
+            total_other_expenses: resultadoSemanaCalculado.despesas,
+            rodrigo_amount: resultadoSemanaCalculado.socio,
+            marlon_amount: resultadoSemanaCalculado.socio,
+            group_cash_amount: Math.max(0, resultadoSemanaCalculado.resultado) / 2,
+          };
+        }
+        return f;
+      });
+  }, [fechamentos, dataInicioCaixa, limiteFinanceiro, semanaInicio, semanaFim, fechamento, resultadoSemanaCalculado]);
 
   const recebimentosConsiderados = useMemo(
     () =>
@@ -529,6 +603,12 @@ export default function PagamentosPage() {
       const { error } = await supabase
         .from("weekly_closings")
         .update({
+          total_musicians: resultadoSemanaCalculado.musicos,
+          total_other_expenses: resultadoSemanaCalculado.despesas,
+          net_result: resultadoSemanaCalculado.resultado,
+          rodrigo_amount: resultadoSemanaCalculado.socio,
+          marlon_amount: resultadoSemanaCalculado.socio,
+          group_cash_amount: Math.max(0, resultadoSemanaCalculado.resultado) / 2,
           [campoPago]: true,
           [campoData]: dataISO(new Date()),
         })

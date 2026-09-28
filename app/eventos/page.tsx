@@ -1543,7 +1543,9 @@ async function abrirFechamentoEvento(evento: Evento) {
         id: receita.id,
         description: receita.description,
         expected_amount: Number(receita.expected_amount || 0),
-        actual_amount: Number(receita.actual_amount || 0),
+        // No fechamento, este campo representa o valor RECEBIDO AGORA.
+        // O histórico já recebido fica preservado em event_revenue_receipts.
+        actual_amount: 0,
         confirmed: Boolean(receita.confirmed),
         status: receita.status as ReceitaEvento["status"],
         expected_receipt_date: receita.expected_receipt_date || null,
@@ -1594,7 +1596,7 @@ async function abrirFechamentoEvento(evento: Evento) {
 
       if (receita.status === "recebido") {
         if (Number(receita.actual_amount || 0) <= 0) {
-          alert(`Informe o valor recebido para: ${receita.description}.`);
+          alert(`Informe o valor recebido agora para: ${receita.description}.`);
           return;
         }
 
@@ -1608,56 +1610,114 @@ async function abrirFechamentoEvento(evento: Evento) {
     setSalvandoFechamento(true);
 
     try {
+      // O valor digitado aqui representa SOMENTE o dinheiro que entrou agora.
+      // Recebimentos anteriores (ex.: sinal) nunca são sobrescritos.
       for (const receita of receitasFechamento) {
-        const atualizacao = !receita.confirmed
-          ? {
-              confirmed: false,
-              status: "cancelado" as const,
-              actual_amount: 0,
-              actual_receipt_date: null,
-            }
-          : receita.status === "recebido"
-            ? {
-                confirmed: true,
-                status: "recebido" as const,
-                actual_amount: Number(receita.actual_amount || 0),
-                actual_receipt_date: receita.actual_receipt_date,
-              }
-            : {
-                confirmed: true,
-                status: "pendente" as const,
-                actual_amount: 0,
-                actual_receipt_date: null,
-              };
+        const { data: existentes, error: existentesError } = await supabase
+          .from("event_revenue_receipts")
+          .select("id,description,expected_amount,actual_amount,status,expected_receipt_date,actual_receipt_date,payment_method,notes")
+          .eq("event_revenue_id", receita.id)
+          .order("created_at", { ascending: true });
 
-        const { error } = await supabase
+        if (existentesError) throw existentesError;
+
+        if (!receita.confirmed) {
+          const { error } = await supabase
+            .from("event_revenues")
+            .update({
+              confirmed: false,
+              status: "cancelado",
+            })
+            .eq("id", receita.id);
+
+          if (error) throw error;
+          continue;
+        }
+
+        const parcelas = existentes || [];
+
+        if (receita.status === "recebido" && Number(receita.actual_amount || 0) > 0) {
+          const parcelaPendente = parcelas.find(
+            (p: any) => p.status !== "recebido" && p.status !== "cancelado"
+          );
+
+          if (parcelaPendente) {
+            const valorAtual = Number(receita.actual_amount || 0);
+            const valorEsperadoParcela = Number(parcelaPendente.expected_amount || valorAtual);
+
+            const { error } = await supabase
+              .from("event_revenue_receipts")
+              .update({
+                actual_amount: valorAtual,
+                actual_receipt_date: receita.actual_receipt_date,
+                status: "recebido",
+                expected_amount: valorEsperadoParcela,
+                payment_method: parcelaPendente.payment_method || null,
+                notes: parcelaPendente.notes || null,
+              })
+              .eq("id", parcelaPendente.id);
+
+            if (error) throw error;
+          } else {
+            const { error } = await supabase
+              .from("event_revenue_receipts")
+              .insert({
+                event_revenue_id: receita.id,
+                description: "Recebimento do fechamento",
+                expected_amount: Number(receita.actual_amount || 0),
+                actual_amount: Number(receita.actual_amount || 0),
+                expected_receipt_date: receita.actual_receipt_date,
+                actual_receipt_date: receita.actual_receipt_date,
+                status: "recebido",
+                payment_method: null,
+                notes: "Recebimento registrado no fechamento do evento",
+              });
+
+            if (error) throw error;
+          }
+        }
+
+        // Se ainda ficou pendente, mantemos o histórico existente.
+        // Apenas garantimos que a receita continua confirmada.
+        const { error: receitaError } = await supabase
           .from("event_revenues")
-          .update(atualizacao)
+          .update({
+            confirmed: true,
+          })
           .eq("id", receita.id);
 
-        if (error) {
-          console.error(error);
-          throw new Error(
-            `Erro ao atualizar ${receita.description}: ${error.message}`
-          );
-        }
+        if (receitaError) throw receitaError;
       }
 
-      const receitasAtualizadas = receitasFechamento.map((receita) =>
-        !receita.confirmed
-          ? { ...receita, confirmed: false, status: "cancelado" as const, actual_amount: 0, actual_receipt_date: null }
-          : receita.status === "recebido"
-            ? { ...receita, confirmed: true, status: "recebido" as const, actual_amount: Number(receita.actual_amount || 0) }
-            : { ...receita, confirmed: true, status: "pendente" as const, actual_amount: 0, actual_receipt_date: null }
-      );
+      // O evento é realizado porque o show aconteceu. O valor recebido
+      // do evento é sempre a soma HISTÓRICA das parcelas recebidas.
+      const { data: receitasFinais, error: receitasFinaisError } = await supabase
+        .from("event_revenues")
+        .select("id,expected_amount,actual_amount,confirmed,status,actual_receipt_date")
+        .eq("event_id", eventoFechando.id);
 
-      const totalRecebido = receitasAtualizadas
-        .filter((receita) => receita.confirmed && receita.status === "recebido")
-        .reduce((total, receita) => total + Number(receita.actual_amount || 0), 0);
+      if (receitasFinaisError) throw receitasFinaisError;
 
-      const datasRecebimento = receitasAtualizadas
-        .filter((receita) => receita.confirmed && receita.status === "recebido" && receita.actual_receipt_date)
-        .map((receita) => receita.actual_receipt_date as string)
+      const idsReceitas = (receitasFinais || []).map((r: any) => r.id);
+      let parcelasFinais: any[] = [];
+
+      if (idsReceitas.length > 0) {
+        const { data, error } = await supabase
+          .from("event_revenue_receipts")
+          .select("event_revenue_id,actual_amount,actual_receipt_date,status")
+          .in("event_revenue_id", idsReceitas);
+
+        if (error) throw error;
+        parcelasFinais = data || [];
+      }
+
+      const totalRecebidoHistorico = parcelasFinais
+        .filter((p) => p.status === "recebido")
+        .reduce((total, p) => total + Number(p.actual_amount || 0), 0);
+
+      const datasRecebimento = parcelasFinais
+        .filter((p) => p.status === "recebido" && p.actual_receipt_date)
+        .map((p) => p.actual_receipt_date as string)
         .sort();
 
       const ultimaDataRecebimento =
@@ -1668,19 +1728,20 @@ async function abrirFechamentoEvento(evento: Evento) {
       const { error: eventoError } = await supabase
         .from("events")
         .update({
-          actual_amount: totalRecebido,
+          actual_amount: totalRecebidoHistorico,
           actual_receipt_date: ultimaDataRecebimento,
           status: "realizado",
         })
         .eq("id", eventoFechando.id);
 
-      if (eventoError) {
-        console.error(eventoError);
-        throw new Error(`Erro ao fechar o evento: ${eventoError.message}`);
-      }
+      if (eventoError) throw eventoError;
+
+      const totalConfirmado = (receitasFinais || [])
+        .filter((r: any) => r.confirmed)
+        .reduce((total, r: any) => total + Number(r.expected_amount || 0), 0);
 
       alert(
-        `Evento fechado com sucesso!\n\nConfirmado: ${formatarMoeda(totalConfirmadoFechamento)}\nRecebido: ${formatarMoeda(totalRecebido)}\nA receber: ${formatarMoeda(totalConfirmadoFechamento - totalRecebido)}`
+        `Evento fechado com sucesso!\n\nValor total do evento: ${formatarMoeda(totalConfirmado)}\nRecebido agora: ${formatarMoeda(receitasFechamento.filter((r) => r.status === "recebido").reduce((s, r) => s + Number(r.actual_amount || 0), 0))}\nRecebido acumulado: ${formatarMoeda(totalRecebidoHistorico)}\nA receber: ${formatarMoeda(Math.max(totalConfirmado - totalRecebidoHistorico, 0))}`
       );
 
       setEventoFechando(null);
@@ -2812,7 +2873,7 @@ async function abrirFechamentoEvento(evento: Evento) {
 
                     <div>
                       <label className="mb-1 block text-xs font-semibold text-slate-600">
-                        Valor recebido
+                        Valor recebido agora
                       </label>
                       <input
                         type="number"

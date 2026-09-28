@@ -20,6 +20,13 @@ type Receita = {
   status: "pendente" | "recebido" | "cancelado";
 };
 
+type Recebimento = {
+  event_revenue_id: string;
+  actual_amount: number;
+  actual_receipt_date: string | null;
+  status: string;
+};
+
 type MusicoEvento = {
   id: string;
   event_id: string;
@@ -233,6 +240,8 @@ export default function RelatoriosPage() {
     Receita[]
   >([]);
 
+  const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
+
   const [musicosEvento, setMusicosEvento] =
     useState<MusicoEvento[]>([]);
 
@@ -302,6 +311,7 @@ export default function RelatoriosPage() {
       const [
         eventosRes,
         receitasRes,
+        recebimentosRes,
         musicosEventoRes,
         musicosRes,
         instrumentosEventoRes,
@@ -333,6 +343,11 @@ export default function RelatoriosPage() {
           .select(
             "id,event_id,description,expected_amount,actual_amount,confirmed,status"
           ),
+
+        supabase
+          .from("event_revenue_receipts")
+          .select("event_revenue_id,actual_amount,actual_receipt_date,status")
+          .eq("status", "recebido"),
 
         supabase
           .from("event_musicians")
@@ -400,6 +415,7 @@ export default function RelatoriosPage() {
       const erros = [
         eventosRes,
         receitasRes,
+        recebimentosRes,
         musicosEventoRes,
         musicosRes,
         instrumentosEventoRes,
@@ -442,6 +458,15 @@ export default function RelatoriosPage() {
             ),
           })
         )
+      );
+
+      setRecebimentos(
+        (recebimentosRes.data || []).map((item: any) => ({
+          event_revenue_id: item.event_revenue_id,
+          actual_amount: Number(item.actual_amount || 0),
+          actual_receipt_date: item.actual_receipt_date || null,
+          status: item.status || "recebido",
+        }))
       );
 
       setMusicosEvento(
@@ -653,53 +678,55 @@ setFechamentos(
       ]
     );
 
-  const totalConfirmado =
-    useMemo(
-      () =>
-        receitasDoPeriodo
-          .filter(
-            (r) =>
-              r.confirmed &&
-              r.status !== "cancelado"
-          )
-          .reduce(
-            (total, r) =>
-              total +
-              Number(
-                r.expected_amount || 0
-              ),
-            0
-          ),
-      [receitasDoPeriodo]
-    );
+  // REGRA FINANCEIRA: para resultado, o valor do evento realizado é o valor final
+  // efetivamente fechado (actual_amount). O dinheiro que entrou no período é outra coisa
+  // e vem exclusivamente de event_revenue_receipts pela data do recebimento.
+  const valorFinalReceita = (r: Receita) =>
+    Number(r.actual_amount || r.expected_amount || 0);
 
-  const totalRecebido =
-    useMemo(
-      () =>
-        receitasDoPeriodo
-          .filter(
-            (r) =>
-              r.confirmed &&
-              r.status === "recebido"
-          )
-          .reduce(
-            (total, r) =>
-              total +
-              Number(
-                r.actual_amount ||
-                  r.expected_amount ||
-                  0
-              ),
-            0
-          ),
-      [receitasDoPeriodo]
+  const recebimentosDoPeriodo = useMemo(() => {
+    const ids = new Set(receitasDoPeriodo.map((r) => r.id));
+    return recebimentos.filter(
+      (r) =>
+        ids.has(r.event_revenue_id) &&
+        r.status === "recebido" &&
+        !!r.actual_receipt_date &&
+        r.actual_receipt_date >= periodo.inicio &&
+        r.actual_receipt_date <= periodo.fim
     );
+  }, [recebimentos, receitasDoPeriodo, periodo.inicio, periodo.fim]);
 
-  const totalAReceber = Math.max(
-    totalConfirmado -
-      totalRecebido,
-    0
+  const recebimentosAteFim = useMemo(() => {
+    const ids = new Set(receitasDoPeriodo.map((r) => r.id));
+    return recebimentos
+      .filter(
+        (r) =>
+          ids.has(r.event_revenue_id) &&
+          r.status === "recebido" &&
+          !!r.actual_receipt_date &&
+          r.actual_receipt_date <= periodo.fim
+      )
+      .reduce((total, r) => total + Number(r.actual_amount || 0), 0);
+  }, [recebimentos, receitasDoPeriodo, periodo.fim]);
+
+  const totalConfirmado = useMemo(
+    () =>
+      receitasDoPeriodo
+        .filter((r) => r.confirmed && r.status !== "cancelado")
+        .reduce((total, r) => total + valorFinalReceita(r), 0),
+    [receitasDoPeriodo]
   );
+
+  const totalRecebido = useMemo(
+    () =>
+      recebimentosDoPeriodo.reduce(
+        (total, r) => total + Number(r.actual_amount || 0),
+        0
+      ),
+    [recebimentosDoPeriodo]
+  );
+
+  const totalAReceber = Math.max(totalConfirmado - recebimentosAteFim, 0);
 
   /*
    * MÚSICOS
@@ -807,51 +834,15 @@ setFechamentos(
    * DISTRIBUIÇÃO
    */
 
-  const distribuicao =
-    useMemo(() => {
-      const rodrigo =
-        fechamentos.reduce(
-          (total, fechamento) =>
-            total +
-            Number(
-              fechamento.rodrigo_amount ||
-                0
-            ),
-          0
-        );
-
-      const marlon =
-        fechamentos.reduce(
-          (total, fechamento) =>
-            total +
-            Number(
-              fechamento.marlon_amount ||
-                0
-            ),
-          0
-        );
-
-      const grupo =
-        fechamentos.reduce(
-          (total, fechamento) =>
-            total +
-            Number(
-              fechamento.group_cash_amount ||
-                0
-            ),
-          0
-        );
-
-      return {
-        rodrigo,
-        marlon,
-        grupo,
-        total:
-          rodrigo +
-          marlon +
-          grupo,
-      };
-    }, [fechamentos]);
+  const distribuicao = useMemo(() => {
+    // A distribuição do período é calculada pela mesma regra do fechamento:
+    // resultado = valor final dos eventos realizados - músicos - despesas.
+    // Não usa total_received nem actual receipts para dividir o lucro.
+    const rodrigo = resultadoLiquido > 0 ? resultadoLiquido / 4 : 0;
+    const marlon = resultadoLiquido > 0 ? resultadoLiquido / 4 : 0;
+    const grupo = resultadoLiquido > 0 ? resultadoLiquido / 2 : 0;
+    return { rodrigo, marlon, grupo, total: rodrigo + marlon + grupo };
+  }, [resultadoLiquido]);
 
   /*
    * LINHAS DOS MÚSICOS
@@ -1265,68 +1256,28 @@ setFechamentos(
    * RECEITAS AGRUPADAS
    */
 
-  const resumoReceitas =
-    useMemo(() => {
-      return receitasDoPeriodo
-        .filter(
-          (r) =>
-            r.confirmed &&
-            r.status !==
-              "cancelado"
-        )
-        .reduce(
-          (
-            mapa,
-            receita
-          ) => {
-            if (
-              !mapa.has(
-                receita.description
-              )
-            ) {
-              mapa.set(
-                receita.description,
-                {
-                  confirmado: 0,
-                  recebido: 0,
-                }
-              );
-            }
+  const resumoReceitas = useMemo(() => {
+    const recebidosPorReceita = new Map<string, number>();
 
-            const linha =
-              mapa.get(
-                receita.description
-              )!;
+    for (const r of recebimentosDoPeriodo) {
+      recebidosPorReceita.set(
+        r.event_revenue_id,
+        (recebidosPorReceita.get(r.event_revenue_id) || 0) + Number(r.actual_amount || 0)
+      );
+    }
 
-            linha.confirmado +=
-              Number(
-                receita.expected_amount ||
-                  0
-              );
-
-            if (
-              receita.status ===
-              "recebido"
-            ) {
-              linha.recebido +=
-                Number(
-                  receita.actual_amount ||
-                    receita.expected_amount ||
-                    0
-                );
-            }
-
-            return mapa;
-          },
-          new Map<
-            string,
-            {
-              confirmado: number;
-              recebido: number;
-            }
-          >()
-        );
-    }, [receitasDoPeriodo]);
+    return receitasDoPeriodo
+      .filter((r) => r.confirmed && r.status !== "cancelado")
+      .reduce((mapa, receita) => {
+        if (!mapa.has(receita.description)) {
+          mapa.set(receita.description, { confirmado: 0, recebido: 0 });
+        }
+        const linha = mapa.get(receita.description)!;
+        linha.confirmado += valorFinalReceita(receita);
+        linha.recebido += recebidosPorReceita.get(receita.id) || 0;
+        return mapa;
+      }, new Map<string, { confirmado: number; recebido: number }>());
+  }, [receitasDoPeriodo, recebimentosDoPeriodo]);
 
   const bonusMeses =
     bonificacoes.length;

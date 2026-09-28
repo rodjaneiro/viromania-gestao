@@ -42,6 +42,13 @@ type Despesa = {
   notes: string | null;
 };
 
+type Recebimento = {
+  event_revenue_id: string;
+  actual_amount: number;
+  actual_receipt_date: string | null;
+  status: string;
+};
+
 type Musico = {
   id: string;
   name: string;
@@ -117,6 +124,7 @@ export default function FechamentoPage() {
 
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [receitas, setReceitas] = useState<Receita[]>([]);
+  const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   const [musicosEventos, setMusicosEventos] = useState<MusicoEvento[]>([]);
   const [musicosEventosOriginais, setMusicosEventosOriginais] = useState<MusicoEvento[]>([]);
   const [musicosEventosRemovidos, setMusicosEventosRemovidos] = useState<string[]>([]);
@@ -227,6 +235,28 @@ export default function FechamentoPage() {
             ),
           }))
         );
+
+        const receitaIds = (receitasData || []).map((item) => item.id);
+        if (receitaIds.length > 0) {
+          const { data: recebimentosData, error: recebimentosError } =
+            await supabase
+              .from("event_revenue_receipts")
+              .select("event_revenue_id,actual_amount,actual_receipt_date,status")
+              .in("event_revenue_id", receitaIds);
+
+          if (recebimentosError) throw recebimentosError;
+
+          setRecebimentos(
+            (recebimentosData || []).map((item: any) => ({
+              event_revenue_id: item.event_revenue_id,
+              actual_amount: Number(item.actual_amount || 0),
+              actual_receipt_date: item.actual_receipt_date || null,
+              status: item.status || "pendente",
+            }))
+          );
+        } else {
+          setRecebimentos([]);
+        }
 
         const {
           data: participantes,
@@ -655,7 +685,7 @@ export default function FechamentoPage() {
         if (error) throw error;
       }
 
-      const originaisMap = new Map(
+      const originaisMap = new Map<string, MusicoEvento>(
         musicosEventosOriginais.map((item) => [item.id, item])
       );
 
@@ -858,60 +888,58 @@ export default function FechamentoPage() {
     (evento) => evento.status === "realizado"
   );
 
-  const totalPrevisto = useMemo(() => {
-    return receitas.reduce(
-      (total, receita) =>
-        total + Number(receita.expected_amount || 0),
-      0
-    );
-  }, [receitas]);
+  const valorFinalReceita = (receita: Receita) =>
+    Number(receita.actual_amount || receita.expected_amount || 0);
 
-  const totalConfirmado = useMemo(() => {
-    return receitas
-      .filter((receita) => receita.confirmed)
-      .filter((receita) => {
-        const evento = eventos.find(
-          (item) => item.id === receita.event_id
-        );
-
+  const receitasRealizadas = useMemo(
+    () =>
+      receitas.filter((receita) => {
+        if (!receita.confirmed || receita.status === "cancelado") return false;
+        const evento = eventos.find((item) => item.id === receita.event_id);
         return evento?.status === "realizado";
-      })
-      .reduce(
-        (total, receita) =>
-          total +
-          Number(receita.expected_amount || 0),
-        0
-      );
-  }, [receitas, eventos]);
+      }),
+    [receitas, eventos]
+  );
+
+  const totalPrevisto = useMemo(() =>
+    receitasRealizadas.reduce((total, r) => total + Number(r.expected_amount || 0), 0),
+    [receitasRealizadas]
+  );
+
+  const totalConfirmado = useMemo(() =>
+    receitasRealizadas.reduce((total, r) => total + valorFinalReceita(r), 0),
+    [receitasRealizadas]
+  );
 
   const totalRecebido = useMemo(() => {
-    return receitas
+    const ids = new Set(receitasRealizadas.map((r) => r.id));
+    return recebimentos
       .filter(
-        (receita) =>
-          receita.confirmed &&
-          receita.status === "recebido"
+        (r) =>
+          ids.has(r.event_revenue_id) &&
+          r.status === "recebido" &&
+          !!r.actual_receipt_date &&
+          r.actual_receipt_date >= semanaInicio &&
+          r.actual_receipt_date <= semanaFim
       )
-      .filter((receita) => {
-        const evento = eventos.find(
-          (item) => item.id === receita.event_id
-        );
+      .reduce((total, r) => total + Number(r.actual_amount || 0), 0);
+  }, [recebimentos, receitasRealizadas, semanaInicio, semanaFim]);
 
-        return evento?.status === "realizado";
-      })
-      .reduce(
-        (total, receita) =>
-          total +
-          Number(
-            receita.actual_amount ||
-              receita.expected_amount ||
-              0
-          ),
-        0
-      );
-  }, [receitas, eventos]);
+  const totalRecebidoAteFim = useMemo(() => {
+    const ids = new Set(receitasRealizadas.map((r) => r.id));
+    return recebimentos
+      .filter(
+        (r) =>
+          ids.has(r.event_revenue_id) &&
+          r.status === "recebido" &&
+          !!r.actual_receipt_date &&
+          r.actual_receipt_date <= semanaFim
+      )
+      .reduce((total, r) => total + Number(r.actual_amount || 0), 0);
+  }, [recebimentos, receitasRealizadas, semanaFim]);
 
   const totalAReceber = Math.max(
-    totalConfirmado - totalRecebido,
+    totalConfirmado - totalRecebidoAteFim,
     0
   );
 
