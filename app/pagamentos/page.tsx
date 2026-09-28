@@ -25,6 +25,8 @@ type Fechamento = {
   week_start: string;
   week_end: string;
   net_result: number;
+  total_musicians: number;
+  total_other_expenses: number;
   rodrigo_amount: number;
   marlon_amount: number;
   group_cash_amount: number;
@@ -32,6 +34,13 @@ type Fechamento = {
   marlon_paid: boolean;
   rodrigo_payment_date: string | null;
   marlon_payment_date: string | null;
+};
+
+type Recebimento = {
+  event_revenue_id: string;
+  actual_amount: number;
+  actual_receipt_date: string | null;
+  status: string;
 };
 
 type PagamentoMusico = {
@@ -52,10 +61,7 @@ function moeda(valor: number) {
 }
 
 function dataISO(date: Date) {
-  const ano = date.getFullYear();
-  const mes = String(date.getMonth() + 1).padStart(2, "0");
-  const dia = String(date.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function dataBR(data: string | null | undefined) {
@@ -67,8 +73,7 @@ function dataBR(data: string | null | undefined) {
 function segundaDaSemana(date: Date) {
   const d = new Date(date);
   const dia = d.getDay();
-  const diferenca = dia === 0 ? -6 : 1 - dia;
-  d.setDate(d.getDate() + diferenca);
+  d.setDate(d.getDate() + (dia === 0 ? -6 : 1 - dia));
   return d;
 }
 
@@ -79,18 +84,15 @@ function domingoDaSemana(date: Date) {
 }
 
 export default function PagamentosPage() {
-  const hoje = new Date();
-
-  const [semanaReferencia, setSemanaReferencia] = useState(dataISO(hoje));
+  const [semanaReferencia, setSemanaReferencia] = useState(dataISO(new Date()));
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [participacoes, setParticipacoes] = useState<Participacao[]>([]);
   const [fechamento, setFechamento] = useState<Fechamento | null>(null);
-
+  const [fechamentos, setFechamentos] = useState<Fechamento[]>([]);
+  const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   const [saldoInicialCaixa, setSaldoInicialCaixa] = useState(0);
   const [entradasCaixa, setEntradasCaixa] = useState(0);
   const [entradasCaixaSemana, setEntradasCaixaSemana] = useState(0);
-  const [saidasCaixa, setSaidasCaixa] = useState(0);
-
   const [loading, setLoading] = useState(true);
   const [pagando, setPagando] = useState<string | null>(null);
   const [mensagem, setMensagem] = useState("");
@@ -112,119 +114,128 @@ export default function PagamentosPage() {
       setErro("");
       setMensagem("");
 
-      const { data: eventosData, error: eventosError } = await supabase
+      const eventosRes = await supabase
         .from("events")
         .select("id,name,event_date,status")
         .gte("event_date", semanaInicio)
         .lte("event_date", semanaFim)
-        .order("event_date", { ascending: true });
+        .order("event_date");
 
-      if (eventosError) throw eventosError;
-
-      const eventosRealizados = (eventosData || []).filter(
-        (evento: Evento) => evento.status === "realizado"
-      );
-
-      setEventos(eventosRealizados);
-
-      const idsEventos = eventosRealizados.map((evento) => evento.id);
-
-      if (idsEventos.length > 0) {
-        const { data: participacoesData, error: participacoesError } =
-          await supabase
-            .from("event_musicians")
-            .select(
-              `
-                id,
-                event_id,
-                musician_id,
-                event_cache,
-                payment_status,
-                payment_date,
-                musicians ( name )
-              `
-            )
-            .in("event_id", idsEventos);
-
-        if (participacoesError) throw participacoesError;
-
-        setParticipacoes(
-          (participacoesData || []).map((item: any) => ({
-            id: item.id,
-            event_id: item.event_id,
-            musician_id: item.musician_id,
-            event_cache: Number(item.event_cache || 0),
-            payment_status: item.payment_status || "pendente",
-            payment_date: item.payment_date || null,
-            musician_name: item.musicians?.name || "Músico",
-          }))
-        );
-      } else {
-        setParticipacoes([]);
-      }
-
-      const { data: fechamentoData, error: fechamentoError } = await supabase
+      const fechamentoSelecionadoRes = await supabase
         .from("weekly_closings")
-        .select(
-          "id,week_start,week_end,net_result,rodrigo_amount,marlon_amount,group_cash_amount,rodrigo_paid,marlon_paid,rodrigo_payment_date,marlon_payment_date"
-        )
+        .select("id,week_start,week_end,net_result,total_musicians,total_other_expenses,rodrigo_amount,marlon_amount,group_cash_amount,rodrigo_paid,marlon_paid,rodrigo_payment_date,marlon_payment_date")
         .eq("week_start", semanaInicio)
         .eq("week_end", semanaFim)
         .maybeSingle();
 
-      if (fechamentoError) throw fechamentoError;
+      const fechamentosRes = await supabase
+        .from("weekly_closings")
+        .select("id,week_start,week_end,net_result,total_musicians,total_other_expenses,rodrigo_amount,marlon_amount,group_cash_amount,rodrigo_paid,marlon_paid,rodrigo_payment_date,marlon_payment_date")
+        .order("week_end", { ascending: true });
 
-      setFechamento(fechamentoData || null);
+      const configRes = await supabase
+        .from("cash_setup")
+        .select("initial_balance,start_date")
+        .limit(1)
+        .maybeSingle();
 
-      const [
-        { data: caixaConfigData, error: caixaConfigError },
-        { data: caixaData, error: caixaError },
-      ] = await Promise.all([
-        supabase
-          .from("cash_setup")
-          .select("initial_balance")
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from("cash_transactions")
-          .select("transaction_date,amount,direction")
-          .order("transaction_date", { ascending: false }),
-      ]);
+      if (eventosRes.error) throw eventosRes.error;
+      if (fechamentoSelecionadoRes.error) throw fechamentoSelecionadoRes.error;
+      if (fechamentosRes.error) throw fechamentosRes.error;
+      if (configRes.error) throw configRes.error;
 
-      if (caixaConfigError) throw caixaConfigError;
-      if (caixaError) throw caixaError;
+      const eventosLista = (eventosRes.data || []) as Evento[];
+      const eventosRealizados = eventosLista.filter((e) => e.status === "realizado");
+      const idsEventosRealizados = eventosRealizados.map((e) => e.id);
 
-      const saldoInicial = Number(caixaConfigData?.initial_balance || 0);
-      const lancamentosCaixa = (caixaData || []).map((item: any) => ({
-        transaction_date: item.transaction_date as string,
-        amount: Number(item.amount || 0),
-        direction: item.direction as "entrada" | "saida",
-      }));
+      let participacoesData: any[] = [];
 
-      const totalEntradas = lancamentosCaixa
-        .filter((item) => item.direction === "entrada")
-        .reduce((total, item) => total + item.amount, 0);
+      if (idsEventosRealizados.length > 0) {
+        const participacoesRes = await supabase
+          .from("event_musicians")
+          .select("id,event_id,musician_id,event_cache,payment_status,payment_date,musicians(name)")
+          .in("event_id", idsEventosRealizados);
 
-      const totalSaidas = lancamentosCaixa
-        .filter((item) => item.direction === "saida")
-        .reduce((total, item) => total + item.amount, 0);
+        if (participacoesRes.error) throw participacoesRes.error;
+        participacoesData = participacoesRes.data || [];
+      }
 
-      const entradasSemana = lancamentosCaixa
+      const recebimentosRes = await supabase
+        .from("event_revenue_receipts")
+        .select("event_revenue_id,actual_amount,actual_receipt_date,status")
+        .eq("status", "recebido");
+
+      if (recebimentosRes.error) throw recebimentosRes.error;
+
+      const todosFechamentos = (fechamentosRes.data || []) as Fechamento[];
+      const fechamentoAtual = (fechamentoSelecionadoRes.data || null) as Fechamento | null;
+
+      setEventos(eventosRealizados);
+      setFechamento(fechamentoAtual);
+      setFechamentos(todosFechamentos);
+      setSaldoInicialCaixa(Number(configRes.data?.initial_balance || 0));
+
+      const inicioCaixa = configRes.data?.start_date || "1900-01-01";
+      const ultimoFechamentoAteSemana = todosFechamentos
+        .filter((f) => f.week_end <= semanaFim)
+        .sort((a, b) => a.week_end.localeCompare(b.week_end))
+        .at(-1);
+
+      // REGRA IMPORTANTE:
+      // Se a semana selecionada ainda NÃO foi fechada, ela não participa
+      // de nenhum cálculo de caixa. O último fechamento salvo vira o limite.
+      const dataLimiteCaixa = fechamentoAtual
+        ? semanaFim
+        : (ultimoFechamentoAteSemana?.week_end || inicioCaixa);
+
+      const recibos = (recebimentosRes.data || [])
         .filter(
-          (item) =>
-            item.direction === "entrada" &&
-            item.transaction_date >= semanaInicio &&
-            item.transaction_date <= semanaFim
+          (r: any) =>
+            r.status === "recebido" &&
+            r.actual_receipt_date &&
+            r.actual_receipt_date >= inicioCaixa &&
+            r.actual_receipt_date <= dataLimiteCaixa
         )
-        .reduce((total, item) => total + item.amount, 0);
+        .map((r: any) => ({
+          event_revenue_id: r.event_revenue_id,
+          actual_amount: Number(r.actual_amount || 0),
+          actual_receipt_date: r.actual_receipt_date || null,
+          status: r.status,
+        }));
 
-      setSaldoInicialCaixa(saldoInicial);
-      setEntradasCaixa(totalEntradas);
-      setEntradasCaixaSemana(entradasSemana);
-      setSaidasCaixa(totalSaidas);
+      setRecebimentos(recibos);
+
+      setParticipacoes(
+        participacoesData.map((item: any) => ({
+          id: item.id,
+          event_id: item.event_id,
+          musician_id: item.musician_id,
+          event_cache: Number(item.event_cache || 0),
+          payment_status: item.payment_status || "pendente",
+          payment_date: item.payment_date || null,
+          musician_name: item.musicians?.name || "Músico",
+        }))
+      );
+
+      const semanaRecibos = fechamentoAtual
+        ? recibos.filter(
+            (r) =>
+              !!r.actual_receipt_date &&
+              r.actual_receipt_date >= semanaInicio &&
+              r.actual_receipt_date <= semanaFim
+          )
+        : [];
+
+      setEntradasCaixa(
+        recibos.reduce((s, r) => s + Number(r.actual_amount || 0), 0)
+      );
+
+      setEntradasCaixaSemana(
+        semanaRecibos.reduce((s, r) => s + Number(r.actual_amount || 0), 0)
+      );
     } catch (error: any) {
       console.error(error);
-      setErro(error.message || "Erro ao carregar os pagamentos da semana.");
+      setErro(error.message || "Erro ao carregar os pagamentos.");
     } finally {
       setLoading(false);
     }
@@ -237,10 +248,10 @@ export default function PagamentosPage() {
   const pagamentosMusicos = useMemo<PagamentoMusico[]>(() => {
     const mapa = new Map<string, PagamentoMusico>();
 
-    for (const participacao of participacoes) {
-      const atual = mapa.get(participacao.musician_id) || {
-        musician_id: participacao.musician_id,
-        nome: participacao.musician_name,
+    for (const p of participacoes) {
+      const atual = mapa.get(p.musician_id) || {
+        musician_id: p.musician_id,
+        nome: p.musician_name,
         eventos: 0,
         total: 0,
         pago: 0,
@@ -249,36 +260,49 @@ export default function PagamentosPage() {
       };
 
       atual.eventos += 1;
-      atual.total += participacao.event_cache;
-      atual.participacoes.push(participacao);
+      atual.total += p.event_cache;
+      atual.participacoes.push(p);
 
-      if (participacao.payment_status === "pago") {
-        atual.pago += participacao.event_cache;
-      } else {
-        atual.pendente += participacao.event_cache;
-      }
+      if (p.payment_status === "pago") atual.pago += p.event_cache;
+      else atual.pendente += p.event_cache;
 
-      mapa.set(participacao.musician_id, atual);
+      mapa.set(p.musician_id, atual);
     }
 
-    return Array.from(mapa.values()).sort((a, b) =>
+    return [...mapa.values()].sort((a, b) =>
       a.nome.localeCompare(b.nome, "pt-BR")
     );
   }, [participacoes]);
 
-  const totalMusicos = pagamentosMusicos.reduce((soma, item) => soma + item.total, 0);
-  const totalPagoMusicos = pagamentosMusicos.reduce((soma, item) => soma + item.pago, 0);
-  const totalPendenteMusicos = pagamentosMusicos.reduce((soma, item) => soma + item.pendente, 0);
+  const totalMusicos = pagamentosMusicos.reduce((s, p) => s + p.total, 0);
+  const totalPagoMusicos = pagamentosMusicos.reduce((s, p) => s + p.pago, 0);
+  const totalPendenteMusicos = pagamentosMusicos.reduce((s, p) => s + p.pendente, 0);
 
-  const totalSocios =
-    Number(fechamento?.rodrigo_amount || 0) +
-    Number(fechamento?.marlon_amount || 0);
+  const rodrigo = Number(fechamento?.rodrigo_amount || 0);
+  const marlon = Number(fechamento?.marlon_amount || 0);
 
-  const totalPagar = totalPendenteMusicos + totalSocios -
-    (fechamento?.rodrigo_paid ? Number(fechamento?.rodrigo_amount || 0) : 0) -
-    (fechamento?.marlon_paid ? Number(fechamento?.marlon_amount || 0) : 0);
+  // Saldo projetado após quitar TODAS as obrigações da semana.
+  // É exatamente a conta confirmada pelo usuário:
+  // saldo inicial + recebimentos reais acumulados - músicos - sócios.
+  const fechamentosAteSemana = fechamentos.filter(
+    (f) => f.week_end <= semanaFim
+  );
 
-  const saldoAtualCaixa = saldoInicialCaixa + entradasCaixa - saidasCaixa;
+  // O caixa atual só considera semanas FECHADAS.
+  // Para uma semana ainda aberta, mantemos exatamente o saldo do último
+  // fechamento, sem considerar recebimentos, músicos ou sócios da semana aberta.
+  const obrigacoesFechadas = fechamentosAteSemana.reduce(
+    (total, f) =>
+      total +
+      Number(f.total_musicians || 0) +
+      Number(f.total_other_expenses || 0) +
+      Number(f.rodrigo_amount || 0) +
+      Number(f.marlon_amount || 0),
+    0
+  );
+
+  const saldoAposFechamento =
+    saldoInicialCaixa + entradasCaixa - obrigacoesFechadas;
 
   function mudarSemana(direcao: number) {
     const data = new Date(`${semanaInicio}T12:00:00`);
@@ -289,24 +313,17 @@ export default function PagamentosPage() {
   async function pagarMusico(item: PagamentoMusico) {
     if (item.pendente <= 0 || pagando) return;
 
-    const confirmar = window.confirm(
-      `Confirmar pagamento de ${item.nome} no valor de ${moeda(item.pendente)}?
-
-Isso marcará como pago todas as participações pendentes desta semana.`
-    );
-
-    if (!confirmar) return;
+    if (
+      !window.confirm(
+        `Confirmar pagamento de ${item.nome} no valor de ${moeda(item.pendente)}?`
+      )
+    ) return;
 
     try {
       setPagando(item.musician_id);
-      setErro("");
-      setMensagem("");
-
-      const idsPendentes = item.participacoes
-        .filter((participacao) => participacao.payment_status !== "pago")
-        .map((participacao) => participacao.id);
-
-      if (idsPendentes.length === 0) return;
+      const ids = item.participacoes
+        .filter((p) => p.payment_status !== "pago")
+        .map((p) => p.id);
 
       const { error } = await supabase
         .from("event_musicians")
@@ -314,15 +331,14 @@ Isso marcará como pago todas as participações pendentes desta semana.`
           payment_status: "pago",
           payment_date: dataISO(new Date()),
         })
-        .in("id", idsPendentes);
+        .in("id", ids);
 
       if (error) throw error;
 
       setMensagem(`${item.nome} marcado como pago.`);
       await carregar();
     } catch (error: any) {
-      console.error(error);
-      setErro(error.message || "Erro ao registrar o pagamento do músico.");
+      setErro(error.message || "Erro ao registrar pagamento.");
     } finally {
       setPagando(null);
     }
@@ -330,28 +346,20 @@ Isso marcará como pago todas as participações pendentes desta semana.`
 
   async function pagarSocio(tipo: "rodrigo" | "marlon") {
     if (!fechamento) {
-      setErro("Faça e salve o fechamento da semana antes de pagar os sócios.");
+      setErro("Salve o fechamento da semana antes de pagar os sócios.");
       return;
     }
 
     const nome = tipo === "rodrigo" ? "Rodrigo" : "Marlon";
-    const valor = Number(
-      tipo === "rodrigo" ? fechamento.rodrigo_amount : fechamento.marlon_amount
-    );
-    const jaPago = tipo === "rodrigo" ? fechamento.rodrigo_paid : fechamento.marlon_paid;
+    const valor = tipo === "rodrigo" ? rodrigo : marlon;
+    const pago = tipo === "rodrigo" ? fechamento.rodrigo_paid : fechamento.marlon_paid;
 
-    if (jaPago || valor <= 0) return;
+    if (pago || valor <= 0) return;
 
-    const confirmar = window.confirm(
-      `Confirmar pagamento de ${nome} no valor de ${moeda(valor)}?`
-    );
-
-    if (!confirmar) return;
+    if (!window.confirm(`Confirmar pagamento de ${nome} no valor de ${moeda(valor)}?`)) return;
 
     try {
       setPagando(tipo);
-      setErro("");
-      setMensagem("");
 
       const campoPago = tipo === "rodrigo" ? "rodrigo_paid" : "marlon_paid";
       const campoData = tipo === "rodrigo" ? "rodrigo_payment_date" : "marlon_payment_date";
@@ -369,8 +377,7 @@ Isso marcará como pago todas as participações pendentes desta semana.`
       setMensagem(`${nome} marcado como pago.`);
       await carregar();
     } catch (error: any) {
-      console.error(error);
-      setErro(error.message || "Erro ao registrar o pagamento do sócio.");
+      setErro(error.message || "Erro ao registrar pagamento do sócio.");
     } finally {
       setPagando(null);
     }
@@ -387,205 +394,128 @@ Isso marcará como pago todas as participações pendentes desta semana.`
               Tudo que precisa ser pago depois do fechamento da semana.
             </p>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => mudarSemana(-1)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold hover:bg-slate-50"
-            >
+          <div className="flex gap-2">
+            <button onClick={() => mudarSemana(-1)} className="rounded-lg border bg-white px-3 py-2 text-sm font-bold">
               ← Semana anterior
             </button>
-            <button
-              onClick={() => mudarSemana(1)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold hover:bg-slate-50"
-            >
+            <button onClick={() => mudarSemana(1)} className="rounded-lg border bg-white px-3 py-2 text-sm font-bold">
               Próxima semana →
             </button>
           </div>
         </div>
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Semana selecionada</p>
-              <p className="mt-1 text-2xl font-extrabold">
-                {dataBR(semanaInicio)} até {dataBR(semanaFim)}
-              </p>
-            </div>
-            <div className={`rounded-full px-4 py-2 text-sm font-bold ${fechamento ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+        <section className="mb-6 rounded-xl border bg-white p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Semana selecionada</p>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-4">
+            <p className="text-2xl font-extrabold">{dataBR(semanaInicio)} até {dataBR(semanaFim)}</p>
+            <span className={`rounded-full px-4 py-2 text-sm font-bold ${fechamento ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
               {fechamento ? "✓ Fechamento realizado" : "⚠ Fechamento ainda não salvo"}
-            </div>
+            </span>
           </div>
         </section>
 
-        {mensagem && (
-          <div className="mb-5 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
-            {mensagem}
-          </div>
-        )}
-
-        {erro && (
-          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {erro}
-          </div>
-        )}
+        {mensagem && <div className="mb-5 rounded-lg bg-green-50 p-4 text-sm font-semibold text-green-700">{mensagem}</div>}
+        {erro && <div className="mb-5 rounded-lg bg-red-50 p-4 text-sm font-semibold text-red-700">{erro}</div>}
 
         {loading ? (
           <div className="rounded-xl bg-white p-10 text-center shadow-sm">Carregando pagamentos...</div>
         ) : (
           <>
             <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
+              <div className="rounded-xl border border-purple-200 bg-purple-50 p-5">
                 <p className="text-sm font-semibold text-purple-700">Pagamento dos músicos da semana</p>
                 <p className="mt-2 text-2xl font-extrabold text-purple-900">{moeda(totalPendenteMusicos)}</p>
                 <p className="mt-1 text-xs text-purple-700">Total: {moeda(totalMusicos)} • Já pago: {moeda(totalPagoMusicos)}</p>
               </div>
 
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
                 <p className="text-sm font-semibold text-emerald-700">Entrou no caixa na semana</p>
                 <p className="mt-2 text-2xl font-extrabold text-emerald-900">{moeda(entradasCaixaSemana)}</p>
-                <p className="mt-1 text-xs text-emerald-700">De {dataBR(semanaInicio)} até {dataBR(semanaFim)}</p>
+                <p className="mt-1 text-xs text-emerald-700">Somente recebimentos reais de {dataBR(semanaInicio)} a {dataBR(semanaFim)}</p>
               </div>
 
-              <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
                 <p className="text-sm font-semibold text-blue-700">Entradas no caixa</p>
                 <p className="mt-2 text-2xl font-extrabold text-blue-900">{moeda(entradasCaixa)}</p>
-                <p className="mt-1 text-xs text-blue-700">Total acumulado de entradas registradas</p>
+                <p className="mt-1 text-xs text-blue-700">Recebimentos reais acumulados desde a implantação</p>
               </div>
 
-              <div className="rounded-xl border border-green-200 bg-green-50 p-5 shadow-sm">
-                <p className="text-sm font-semibold text-green-700">Saldo atual total do caixa</p>
-                <p className={`mt-2 text-2xl font-extrabold ${saldoAtualCaixa >= 0 ? "text-green-900" : "text-red-700"}`}>
-                  {moeda(saldoAtualCaixa)}
+              <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+                <p className="text-sm font-semibold text-green-700">Saldo após o fechamento</p>
+                <p className={`mt-2 text-2xl font-extrabold ${saldoAposFechamento >= 0 ? "text-green-900" : "text-red-700"}`}>
+                  {moeda(saldoAposFechamento)}
                 </p>
-                <p className="mt-1 text-xs text-green-700">Saldo inicial + entradas − saídas</p>
+                <p className="mt-1 text-xs text-green-700">Somente semanas fechadas: saldo inicial + recebimentos − custos</p>
               </div>
             </section>
 
-            <section className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 p-5">
+            <section className="mb-6 rounded-xl border bg-white shadow-sm">
+              <div className="border-b p-5">
                 <h2 className="text-xl font-extrabold">Pagamentos dos músicos</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Todos que tocaram em eventos realizados nesta semana, incluindo fixos e freelancers.
-                </p>
               </div>
-
               {pagamentosMusicos.length === 0 ? (
-                <div className="p-10 text-center text-slate-500">
-                  Nenhum músico participou de eventos realizados nesta semana.
-                </div>
+                <div className="p-10 text-center text-slate-500">Nenhum músico participou de eventos realizados nesta semana.</div>
               ) : (
-                <div className="divide-y divide-slate-100">
-                  {pagamentosMusicos.map((item) => {
-                    const pago = item.pendente <= 0;
+                <div className="divide-y">
+                  {pagamentosMusicos.map((item) => (
+                    <div key={item.musician_id} className="flex flex-wrap items-center justify-between gap-4 p-5">
+                      <div>
+                        <p className="text-lg font-extrabold">{item.nome}</p>
+                        <p className="text-sm text-slate-500">{item.eventos} evento(s) • Total: {moeda(item.total)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold uppercase text-slate-500">A pagar</p>
+                        <p className="text-xl font-extrabold">{moeda(item.pendente)}</p>
+                        <p className="text-xs text-slate-500">Pago: {moeda(item.pago)}</p>
+                      </div>
+                      {item.pendente <= 0 ? (
+                        <span className="rounded-full bg-green-100 px-4 py-2 text-sm font-bold text-green-700">✓ Pago</span>
+                      ) : (
+                        <button onClick={() => pagarMusico(item)} disabled={pagando === item.musician_id} className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+                          {pagando === item.musician_id ? "Registrando..." : `Pagar ${moeda(item.pendente)}`}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="mb-6 rounded-xl border bg-white shadow-sm">
+              <div className="border-b p-5">
+                <h2 className="text-xl font-extrabold">Pagamentos dos sócios</h2>
+                <p className="mt-1 text-sm text-slate-500">Rodrigo 25% e Marlon 25% do resultado da semana.</p>
+              </div>
+              {!fechamento ? (
+                <div className="p-8 text-center text-slate-500">Salve o fechamento desta semana primeiro.</div>
+              ) : (
+                <div className="grid gap-4 p-5 md:grid-cols-2">
+                  {(["rodrigo", "marlon"] as const).map((tipo) => {
+                    const nome = tipo === "rodrigo" ? "Rodrigo" : "Marlon";
+                    const valor = tipo === "rodrigo" ? rodrigo : marlon;
+                    const pago = tipo === "rodrigo" ? fechamento.rodrigo_paid : fechamento.marlon_paid;
+                    const data = tipo === "rodrigo" ? fechamento.rodrigo_payment_date : fechamento.marlon_payment_date;
                     return (
-                      <div key={item.musician_id} className="flex flex-wrap items-center justify-between gap-4 p-5">
-                        <div>
-                          <p className="text-lg font-extrabold">{item.nome}</p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {item.eventos} {item.eventos === 1 ? "evento" : "eventos"} • Total: {moeda(item.total)}
-                          </p>
+                      <div key={tipo} className="rounded-xl border p-5">
+                        <div className="flex items-center justify-between gap-4">
+                          <p className="text-lg font-extrabold">{nome}</p>
+                          <p className="text-2xl font-extrabold">{moeda(valor)}</p>
                         </div>
-
-                        <div className="text-right">
-                          <p className="text-xs font-semibold uppercase text-slate-500">A pagar</p>
-                          <p className="text-xl font-extrabold">{moeda(item.pendente)}</p>
-                          <p className="text-xs text-slate-500">Pago: {moeda(item.pago)}</p>
+                        <div className="mt-4 flex items-center justify-between gap-3">
+                          <span className={`rounded-full px-3 py-1 text-xs font-bold ${pago ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                            {pago ? `Pago em ${dataBR(data)}` : "Pendente"}
+                          </span>
+                          {!pago && (
+                            <button onClick={() => pagarSocio(tipo)} disabled={pagando === tipo} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white">
+                              {pagando === tipo ? "Registrando..." : "Marcar como pago"}
+                            </button>
+                          )}
                         </div>
-
-                        {pago ? (
-                          <span className="rounded-full bg-green-100 px-4 py-2 text-sm font-bold text-green-700">✓ Pago</span>
-                        ) : (
-                          <button
-                            onClick={() => pagarMusico(item)}
-                            disabled={pagando === item.musician_id}
-                            className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
-                          >
-                            {pagando === item.musician_id ? "Registrando..." : `Pagar ${moeda(item.pendente)}`}
-                          </button>
-                        )}
                       </div>
                     );
                   })}
                 </div>
               )}
-            </section>
-
-            <section className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 p-5">
-                <h2 className="text-xl font-extrabold">Pagamentos dos sócios</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Valores calculados automaticamente pelo fechamento semanal: Rodrigo 25% e Marlon 25% do resultado distribuível.
-                </p>
-              </div>
-
-              {!fechamento ? (
-                <div className="p-8 text-center text-slate-500">
-                  Salve o fechamento desta semana para liberar os valores dos sócios.
-                </div>
-              ) : (
-                <div className="grid gap-4 p-5 md:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200 p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <p className="text-lg font-extrabold">Rodrigo</p>
-                        <p className="mt-1 text-sm text-slate-500">Sua parte da divisão semanal</p>
-                      </div>
-                      <p className="text-2xl font-extrabold">{moeda(fechamento.rodrigo_amount)}</p>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${fechamento.rodrigo_paid ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                        {fechamento.rodrigo_paid ? `Pago em ${dataBR(fechamento.rodrigo_payment_date)}` : "Pendente"}
-                      </span>
-                      {!fechamento.rodrigo_paid && (
-                        <button
-                          onClick={() => pagarSocio("rodrigo")}
-                          disabled={pagando === "rodrigo"}
-                          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-                        >
-                          {pagando === "rodrigo" ? "Registrando..." : "Marcar como pago"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <p className="text-lg font-extrabold">Marlon</p>
-                        <p className="mt-1 text-sm text-slate-500">Parte da divisão semanal</p>
-                      </div>
-                      <p className="text-2xl font-extrabold">{moeda(fechamento.marlon_amount)}</p>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${fechamento.marlon_paid ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                        {fechamento.marlon_paid ? `Pago em ${dataBR(fechamento.marlon_payment_date)}` : "Pendente"}
-                      </span>
-                      {!fechamento.marlon_paid && (
-                        <button
-                          onClick={() => pagarSocio("marlon")}
-                          disabled={pagando === "marlon"}
-                          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-                        >
-                          {pagando === "marlon" ? "Registrando..." : "Marcar como pago"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="mb-10 rounded-xl border border-blue-100 bg-blue-50 p-5">
-              <h2 className="font-extrabold text-blue-900">Como funciona</h2>
-              <div className="mt-3 space-y-2 text-sm text-blue-800">
-                <p>1. Você fecha a semana em <strong>Fechamento</strong>.</p>
-                <p>2. Aqui aparecem automaticamente todos os músicos que tocaram nos eventos realizados da semana.</p>
-                <p>3. Fixos e freelancers entram normalmente nos pagamentos dos shows.</p>
-                <p>4. O valor de cada músico é somado quando ele tocou em mais de um evento na semana.</p>
-                <p>5. Rodrigo e Marlon aparecem separados com os valores calculados pelo fechamento.</p>
-                <p>6. Ao clicar em <strong>Pagar</strong>, as participações correspondentes são marcadas como pagas.</p>
-              </div>
             </section>
           </>
         )}
