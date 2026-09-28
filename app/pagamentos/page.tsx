@@ -333,25 +333,9 @@ export default function PagamentosPage() {
    * - semana selecionada, se ela estiver fechada;
    * - último fechamento salvo, se a semana estiver aberta.
    */
-  const resultadoSemanaCalculado = useMemo(() => {
-    const eventosRealizados = new Set(
-      participacoes.map((p) => p.event_id)
-    );
-    // Participações existem apenas para eventos realizados; ainda assim, usamos
-    // as receitas e o status do evento como fonte oficial do valor do evento.
-    const valorEventos = receitasEventos
-      .filter((r) => r.confirmed && r.status !== "cancelado")
-      .reduce((total, r) => total + Number(r.actual_amount || r.expected_amount || 0), 0);
-    const musicos = participacoes.reduce((total, p) => total + Number(p.event_cache || 0), 0);
-    const despesas = despesasEventos.reduce((total, d) => total + Number(d.amount || 0), 0);
-    return {
-      valorEventos,
-      musicos,
-      despesas,
-      resultado: valorEventos - musicos - despesas,
-      socio: Math.max(0, valorEventos - musicos - despesas) / 4,
-    };
-  }, [receitasEventos, despesasEventos, participacoes]);
+  // O fechamento salvo é a fonte oficial dos valores da semana.
+  // Pagamentos não recalcula Rodrigo/Marlon nem altera o fechamento.
+  const resultadoSemanaCalculado = null;
 
   const ultimoFechamento = useMemo(
     () =>
@@ -366,26 +350,12 @@ export default function PagamentosPage() {
     : ultimoFechamento?.week_end || dataInicioCaixa;
 
   const fechamentosConsiderados = useMemo(() => {
-    return fechamentos
-      .filter(
-        (f) =>
-          f.week_end >= dataInicioCaixa &&
-          f.week_end <= limiteFinanceiro
-      )
-      .map((f) => {
-        if (f.week_start === semanaInicio && f.week_end === semanaFim && fechamento) {
-          return {
-            ...f,
-            total_musicians: resultadoSemanaCalculado.musicos,
-            total_other_expenses: resultadoSemanaCalculado.despesas,
-            rodrigo_amount: resultadoSemanaCalculado.socio,
-            marlon_amount: resultadoSemanaCalculado.socio,
-            group_cash_amount: Math.max(0, resultadoSemanaCalculado.resultado) / 2,
-          };
-        }
-        return f;
-      });
-  }, [fechamentos, dataInicioCaixa, limiteFinanceiro, semanaInicio, semanaFim, fechamento, resultadoSemanaCalculado]);
+    return fechamentos.filter(
+      (f) =>
+        f.week_end >= dataInicioCaixa &&
+        f.week_end <= limiteFinanceiro
+    );
+  }, [fechamentos, dataInicioCaixa, limiteFinanceiro]);
 
   const recebimentosConsiderados = useMemo(
     () =>
@@ -603,12 +573,6 @@ export default function PagamentosPage() {
       const { error } = await supabase
         .from("weekly_closings")
         .update({
-          total_musicians: resultadoSemanaCalculado.musicos,
-          total_other_expenses: resultadoSemanaCalculado.despesas,
-          net_result: resultadoSemanaCalculado.resultado,
-          rodrigo_amount: resultadoSemanaCalculado.socio,
-          marlon_amount: resultadoSemanaCalculado.socio,
-          group_cash_amount: Math.max(0, resultadoSemanaCalculado.resultado) / 2,
           [campoPago]: true,
           [campoData]: dataISO(new Date()),
         })

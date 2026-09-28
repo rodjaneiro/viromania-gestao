@@ -685,7 +685,7 @@ export default function FechamentoPage() {
         if (error) throw error;
       }
 
-      const originaisMap = new Map<string, MusicoEvento>(
+      const originaisMap = new Map(
         musicosEventosOriginais.map((item) => [item.id, item])
       );
 

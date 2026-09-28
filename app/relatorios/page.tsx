@@ -682,7 +682,7 @@ setFechamentos(
   // efetivamente fechado (actual_amount). O dinheiro que entrou no período é outra coisa
   // e vem exclusivamente de event_revenue_receipts pela data do recebimento.
   const valorFinalReceita = (r: Receita) =>
-    Number(r.actual_amount || r.expected_amount || 0);
+    Number(r.expected_amount || 0);
 
   const recebimentosDoPeriodo = useMemo(() => {
     const ids = new Set(receitasDoPeriodo.map((r) => r.id));
