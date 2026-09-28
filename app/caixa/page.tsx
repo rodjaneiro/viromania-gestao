@@ -134,7 +134,8 @@ export default function CaixaPage() {
     [lancamentos]
   );
 
-  const saldoAtual = entradas - saidas;
+  const saldoInicialAtual = Number(config?.initial_balance || 0);
+  const saldoAtual = saldoInicialAtual + entradas - saidas;
 
   async function salvarConfiguracaoInicial() {
     const valorNumerico = Number(saldoInicial || 0);
@@ -241,6 +242,9 @@ export default function CaixaPage() {
             <p className="text-xs font-bold uppercase text-slate-500">Saldo atual</p>
             <p className={`mt-2 text-3xl font-extrabold ${saldoAtual >= 0 ? "text-slate-900" : "text-red-600"}`}>
               {moeda(saldoAtual)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Saldo inicial {moeda(saldoInicialAtual)} + entradas {moeda(entradas)} − saídas {moeda(saidas)}
             </p>
           </div>
 

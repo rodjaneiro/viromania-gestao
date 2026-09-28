@@ -85,6 +85,12 @@ export default function PagamentosPage() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [participacoes, setParticipacoes] = useState<Participacao[]>([]);
   const [fechamento, setFechamento] = useState<Fechamento | null>(null);
+
+  const [saldoInicialCaixa, setSaldoInicialCaixa] = useState(0);
+  const [entradasCaixa, setEntradasCaixa] = useState(0);
+  const [entradasCaixaSemana, setEntradasCaixaSemana] = useState(0);
+  const [saidasCaixa, setSaidasCaixa] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [pagando, setPagando] = useState<string | null>(null);
   const [mensagem, setMensagem] = useState("");
@@ -169,6 +175,53 @@ export default function PagamentosPage() {
       if (fechamentoError) throw fechamentoError;
 
       setFechamento(fechamentoData || null);
+
+      const [
+        { data: caixaConfigData, error: caixaConfigError },
+        { data: caixaData, error: caixaError },
+      ] = await Promise.all([
+        supabase
+          .from("cash_setup")
+          .select("initial_balance")
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("cash_transactions")
+          .select("transaction_date,amount,direction")
+          .order("transaction_date", { ascending: false }),
+      ]);
+
+      if (caixaConfigError) throw caixaConfigError;
+      if (caixaError) throw caixaError;
+
+      const saldoInicial = Number(caixaConfigData?.initial_balance || 0);
+      const lancamentosCaixa = (caixaData || []).map((item: any) => ({
+        transaction_date: item.transaction_date as string,
+        amount: Number(item.amount || 0),
+        direction: item.direction as "entrada" | "saida",
+      }));
+
+      const totalEntradas = lancamentosCaixa
+        .filter((item) => item.direction === "entrada")
+        .reduce((total, item) => total + item.amount, 0);
+
+      const totalSaidas = lancamentosCaixa
+        .filter((item) => item.direction === "saida")
+        .reduce((total, item) => total + item.amount, 0);
+
+      const entradasSemana = lancamentosCaixa
+        .filter(
+          (item) =>
+            item.direction === "entrada" &&
+            item.transaction_date >= semanaInicio &&
+            item.transaction_date <= semanaFim
+        )
+        .reduce((total, item) => total + item.amount, 0);
+
+      setSaldoInicialCaixa(saldoInicial);
+      setEntradasCaixa(totalEntradas);
+      setEntradasCaixaSemana(entradasSemana);
+      setSaidasCaixa(totalSaidas);
     } catch (error: any) {
       console.error(error);
       setErro(error.message || "Erro ao carregar os pagamentos da semana.");
@@ -224,6 +277,8 @@ export default function PagamentosPage() {
   const totalPagar = totalPendenteMusicos + totalSocios -
     (fechamento?.rodrigo_paid ? Number(fechamento?.rodrigo_amount || 0) : 0) -
     (fechamento?.marlon_paid ? Number(fechamento?.marlon_amount || 0) : 0);
+
+  const saldoAtualCaixa = saldoInicialCaixa + entradasCaixa - saidasCaixa;
 
   function mudarSemana(direcao: number) {
     const data = new Date(`${semanaInicio}T12:00:00`);
@@ -381,24 +436,29 @@ Isso marcará como pago todas as participações pendentes desta semana.`
           <>
             <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
-                <p className="text-sm font-semibold text-purple-700">Músicos da semana</p>
-                <p className="mt-2 text-2xl font-extrabold text-purple-900">{moeda(totalMusicos)}</p>
-                <p className="mt-1 text-xs text-purple-700">{pagamentosMusicos.length} músico(s)</p>
+                <p className="text-sm font-semibold text-purple-700">Pagamento dos músicos da semana</p>
+                <p className="mt-2 text-2xl font-extrabold text-purple-900">{moeda(totalPendenteMusicos)}</p>
+                <p className="mt-1 text-xs text-purple-700">Total: {moeda(totalMusicos)} • Já pago: {moeda(totalPagoMusicos)}</p>
               </div>
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-                <p className="text-sm font-semibold text-amber-700">Pendente dos músicos</p>
-                <p className="mt-2 text-2xl font-extrabold text-amber-900">{moeda(totalPendenteMusicos)}</p>
-                <p className="mt-1 text-xs text-amber-700">Já pago: {moeda(totalPagoMusicos)}</p>
+
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+                <p className="text-sm font-semibold text-emerald-700">Entrou no caixa na semana</p>
+                <p className="mt-2 text-2xl font-extrabold text-emerald-900">{moeda(entradasCaixaSemana)}</p>
+                <p className="mt-1 text-xs text-emerald-700">De {dataBR(semanaInicio)} até {dataBR(semanaFim)}</p>
               </div>
+
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
-                <p className="text-sm font-semibold text-blue-700">Rodrigo + Marlon</p>
-                <p className="mt-2 text-2xl font-extrabold text-blue-900">{moeda(totalSocios)}</p>
-                <p className="mt-1 text-xs text-blue-700">Divisão do resultado semanal</p>
+                <p className="text-sm font-semibold text-blue-700">Entradas no caixa</p>
+                <p className="mt-2 text-2xl font-extrabold text-blue-900">{moeda(entradasCaixa)}</p>
+                <p className="mt-1 text-xs text-blue-700">Total acumulado de entradas registradas</p>
               </div>
+
               <div className="rounded-xl border border-green-200 bg-green-50 p-5 shadow-sm">
-                <p className="text-sm font-semibold text-green-700">Total a pagar agora</p>
-                <p className="mt-2 text-2xl font-extrabold text-green-900">{moeda(Math.max(0, totalPagar))}</p>
-                <p className="mt-1 text-xs text-green-700">Músicos + sócios pendentes</p>
+                <p className="text-sm font-semibold text-green-700">Saldo atual total do caixa</p>
+                <p className={`mt-2 text-2xl font-extrabold ${saldoAtualCaixa >= 0 ? "text-green-900" : "text-red-700"}`}>
+                  {moeda(saldoAtualCaixa)}
+                </p>
+                <p className="mt-1 text-xs text-green-700">Saldo inicial + entradas − saídas</p>
               </div>
             </section>
 

@@ -105,6 +105,7 @@ export default function EventosPage() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear());
   const [buscaEvento, setBuscaEvento] = useState("");
+  const [mostrarArquivados, setMostrarArquivados] = useState(false);
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const formularioRef = useRef<HTMLElement | null>(null);
@@ -193,6 +194,15 @@ export default function EventosPage() {
           Number(evento.event_date.slice(0, 4)) === anoSelecionado
       )
       .filter((evento) => {
+        const statusNormalizado = String(evento.status || "")
+          .trim()
+          .toLowerCase();
+
+        return mostrarArquivados
+          ? statusNormalizado === "realizado"
+          : statusNormalizado !== "realizado";
+      })
+      .filter((evento) => {
         if (!busca) return true;
 
         const texto = [
@@ -212,7 +222,20 @@ export default function EventosPage() {
         const dataB = `${b.event_date}T${b.event_time || "00:00"}`;
         return dataA.localeCompare(dataB);
       });
-  }, [eventos, anoSelecionado, buscaEvento]);
+  }, [eventos, anoSelecionado, buscaEvento, mostrarArquivados]);
+
+  const quantidadeArquivadosDoAno = useMemo(() => {
+    return eventos.filter((evento) => {
+      const statusNormalizado = String(evento.status || "")
+        .trim()
+        .toLowerCase();
+
+      return (
+        Number(evento.event_date.slice(0, 4)) === anoSelecionado &&
+        statusNormalizado === "realizado"
+      );
+    }).length;
+  }, [eventos, anoSelecionado]);
 
   const anosDisponiveis = useMemo(() => {
     const atual = new Date().getFullYear();
@@ -2872,11 +2895,13 @@ async function abrirFechamentoEvento(evento: Evento) {
           <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 p-5">
             <div>
               <h2 className="text-xl font-bold text-slate-800">
-                Eventos cadastrados
+                {mostrarArquivados ? "Eventos arquivados" : "Eventos cadastrados"}
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Eventos futuros e eventos já realizados.
+                {mostrarArquivados
+                  ? "Eventos concluídos. Eles permanecem salvos e podem ser consultados quando necessário."
+                  : "Eventos ativos, agendados e pendentes. Eventos concluídos são arquivados automaticamente."}
               </p>
             </div>
 
@@ -2908,6 +2933,20 @@ async function abrirFechamentoEvento(evento: Evento) {
                 </div>
               </div>
 
+              <button
+                type="button"
+                onClick={() => setMostrarArquivados((atual) => !atual)}
+                className={`rounded-lg px-4 py-2.5 text-sm font-bold transition ${
+                  mostrarArquivados
+                    ? "bg-slate-800 text-white hover:bg-slate-700"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {mostrarArquivados
+                  ? "← Voltar aos eventos ativos"
+                  : `📦 Ver arquivados (${quantidadeArquivadosDoAno})`}
+              </button>
+
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">
                   Ano
@@ -2934,7 +2973,9 @@ async function abrirFechamentoEvento(evento: Evento) {
             <div className="p-10 text-center text-slate-500">
               {buscaEvento.trim()
                 ? `Nenhum evento encontrado para "${buscaEvento}".`
-                : `Nenhum evento cadastrado em ${anoSelecionado}.`}
+                : mostrarArquivados
+                  ? `Nenhum evento arquivado em ${anoSelecionado}.`
+                  : `Nenhum evento ativo cadastrado em ${anoSelecionado}.`}
             </div>
           ) : (
             <div className="overflow-x-auto">
