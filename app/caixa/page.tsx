@@ -356,7 +356,7 @@ export default function CaixaTestePage() {
             </div>
 
             <section className="mt-5 rounded-xl border bg-white p-5 shadow">
-              <h2 className="text-xl font-bold">Teste do cálculo</h2>
+              <h2 className="text-xl font-bold">Entradas e Saídas</h2>
               <p className="mb-4 text-sm text-slate-500">
                 Semana: {data.weekStart} até {data.weekEnd}
               </p>
