@@ -45,6 +45,15 @@ type Recebimento = {
   status: string;
 };
 
+type SinalDetalhe = {
+  event_revenue_id: string;
+  descricao: string;
+  valor: number;
+  data: string | null;
+  event_id: string | null;
+  evento: string;
+};
+
 type Lancamento = {
   id: string;
   transaction_date: string;
@@ -123,10 +132,12 @@ export default function PagamentosPage() {
     dataISO(new Date())
   );
 
+  const [eventosSemana, setEventosSemana] = useState<Evento[]>([]);
+  const [receitasSemana, setReceitasSemana] = useState<Array<{ id: string; event_id: string }>>([]);
   const [participacoes, setParticipacoes] = useState<Participacao[]>([]);
   const [fechamento, setFechamento] = useState<Fechamento | null>(null);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
-  const [valorRecebidoEventosSemana, setValorRecebidoEventosSemana] = useState<number>(0);
+  const [sinaisDetalhes, setSinaisDetalhes] = useState<SinalDetalhe[]>([]);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [saldoInicialCaixa, setSaldoInicialCaixa] = useState<number>(0);
 
@@ -217,6 +228,15 @@ export default function PagamentosPage() {
         (evento) => evento.status === "realizado"
       );
 
+      setEventosSemana(eventosRealizados);
+
+      setReceitasSemana(
+        (receitasRes.data || []).map((receita: any) => ({
+          id: String(receita.id),
+          event_id: String(receita.event_id),
+        }))
+      );
+
       const idsEventos = eventosRealizados.map((evento) => evento.id);
 
       let participacoesData: any[] = [];
@@ -286,44 +306,39 @@ export default function PagamentosPage() {
         });
       }
 
-      // REGRA DEFINITIVA DO VALOR QUE ENTROU NA SEMANA:
-      // 1) soma o valor REAL de cada evento realizado dentro da semana;
-      // 2) para cada um desses eventos, subtrai o valor do sinal que já foi recebido;
-      // 3) a data em que o sinal foi recebido NÃO importa aqui;
-      // 4) sinais de eventos futuros não entram, porque o evento futuro não pertence à semana.
-      //
-      // Exemplo da semana 21/09 a 27/09:
-      // Lapa 1.050 + Isabela 2.200 - sinal 1.100 + Miami 1.700 = 3.850.
-      const sinaisPorEvento = new Map<string, number>();
-
-      for (const recebimento of recebimentosRes.data || []) {
-        const receita = mapaReceitas.get(String(recebimento.event_revenue_id));
-        if (!receita || !idsEventos.includes(receita.event_id)) continue;
-
-        const descricao = String(recebimento.description || "")
-          .trim()
-          .toLowerCase();
-
-        if (descricao === "sinal" || descricao.startsWith("sinal ")) {
-          const atual = sinaisPorEvento.get(receita.event_id) || 0;
-          sinaisPorEvento.set(
-            receita.event_id,
-            atual + Number(recebimento.actual_amount || 0)
-          );
-        }
+      const mapaEventos = new Map<string, string>();
+      for (const evento of eventosRes.data || []) {
+        mapaEventos.set(String(evento.id), String(evento.name || "Evento sem nome"));
       }
 
-      const valorRecebidoDosEventosDaSemana = eventosRealizados.reduce(
-        (total: number, evento: Evento) => {
-          const valorTotalEvento = Number(evento.actual_amount || 0);
-          const sinalDoEvento = Number(sinaisPorEvento.get(evento.id) || 0);
+      const detalhesSinais: SinalDetalhe[] = (recebimentosRes.data || [])
+        .filter((r: any) => {
+          const descricao = String(r.description || "").trim().toLowerCase();
+          const data = r.actual_receipt_date || "";
+          return (
+            r.status === "recebido" &&
+            !!r.actual_receipt_date &&
+            data >= semanaInicio &&
+            data <= semanaFim &&
+            (descricao === "sinal" || descricao.startsWith("sinal "))
+          );
+        })
+        .map((r: any): SinalDetalhe => {
+          const receita = mapaReceitas.get(String(r.event_revenue_id));
+          const evento = receita?.event_id
+            ? mapaEventos.get(receita.event_id) || "Evento não encontrado"
+            : "Receita não vinculada a evento";
+          return {
+            event_revenue_id: String(r.event_revenue_id),
+            descricao: String(r.description || ""),
+            valor: Number(r.actual_amount || 0),
+            data: r.actual_receipt_date || null,
+            event_id: receita?.event_id || null,
+            evento,
+          };
+        });
 
-          return total + Math.max(valorTotalEvento - sinalDoEvento, 0);
-        },
-        0
-      );
-
-      setValorRecebidoEventosSemana(valorRecebidoDosEventosDaSemana);
+      setSinaisDetalhes(detalhesSinais);
 
       setLancamentos(
         (lancamentosRes.data || []).map(
@@ -415,10 +430,51 @@ export default function PagamentosPage() {
     [pagamentosMusicos]
   );
 
-  const entrouNaSemana = valorRecebidoEventosSemana;
+  // REGRA DEFINITIVA:
+  // Para a semana selecionada, o valor que entra para o fechamento
+  // é o SOMATÓRIO DO VALOR FINAL DOS EVENTOS DA SEMANA
+  // MENOS o sinal que já foi recebido de cada um desses eventos.
+  //
+  // Exemplo da semana 21/09 a 27/09:
+  // Lapa 1.050 + Isabela 2.200 - sinal 1.100 + Miami 1.700 = 3.850.
+  //
+  // Sinais de eventos futuros, como Casamento Luciene (28/11),
+  // nunca entram nessa conta, mesmo que tenham sido recebidos na semana.
+  const valorEventosSemana = useMemo(() => {
+    return eventosSemana.reduce(
+      (total, evento) => total + Number(evento.actual_amount || 0),
+      0
+    );
+  }, [eventosSemana]);
 
-  // O saldo total do caixa será ajustado na próxima etapa.
-  // Aqui mantemos apenas a entrada real dos eventos da semana.
+  const sinaisDosEventosDaSemana = useMemo(() => {
+    const idsEventosSemana = new Set(eventosSemana.map((evento) => evento.id));
+
+    return recebimentos.reduce((total: number, recebimento: any) => {
+      const descricao = String(recebimento.description || "").trim().toLowerCase();
+      if (recebimento.status !== "recebido") return total;
+      if (!(descricao === "sinal" || descricao.startsWith("sinal "))) return total;
+
+      const receita = receitasSemana.find(
+        (item: any) => String(item.id) === String(recebimento.event_revenue_id)
+      );
+      if (!receita || !idsEventosSemana.has(String(receita.event_id))) return total;
+
+      return total + Number(recebimento.actual_amount || 0);
+    }, 0);
+  }, [eventosSemana, recebimentos, receitasSemana]);
+
+  const valorRecebidoEventosSemana = valorEventosSemana;
+  const valorSinaisSemana = sinaisDosEventosDaSemana;
+
+  // Valor novo correspondente aos eventos realizados na semana.
+  const entrouNaSemana = Math.max(
+    valorEventosSemana - sinaisDosEventosDaSemana,
+    0
+  );
+
+  // Caixa será ajustado separadamente depois; por enquanto mantemos
+  // a regra atual desta tela.
   const saldoCaixa = useMemo(() => {
     const musicosPagosSemana = pagamentosMusicos.reduce(
       (total, item) => total + Number(item.pago || 0),
@@ -428,9 +484,15 @@ export default function PagamentosPage() {
     return (
       Number(saldoInicialCaixa || 0) +
       Number(entrouNaSemana || 0) -
+      Number(valorSinaisSemana || 0) -
       Number(musicosPagosSemana || 0)
     );
-  }, [saldoInicialCaixa, entrouNaSemana, pagamentosMusicos]);
+  }, [
+    saldoInicialCaixa,
+    entrouNaSemana,
+    valorSinaisSemana,
+    pagamentosMusicos,
+  ]);
 
   const valorRodrigo = Number(fechamento?.rodrigo_amount || 0);
   const valorMarlon = Number(fechamento?.marlon_amount || 0);
@@ -644,7 +706,7 @@ export default function PagamentosPage() {
               {moeda(entrouNaSemana)}
             </p>
             <p className="mt-1 text-xs text-emerald-700">
-              Soma dos eventos da semana − sinais já recebidos de cada evento.
+              Eventos da semana: {moeda(valorEventosSemana)} • Sinais já recebidos: {moeda(valorSinaisSemana)}
             </p>
           </div>
 
