@@ -38,6 +38,7 @@ type Fechamento = {
 
 type Recebimento = {
   event_revenue_id: string;
+  description: string;
   actual_amount: number;
   actual_receipt_date: string | null;
   status: string;
@@ -56,6 +57,7 @@ type DespesaEvento = {
   id: string;
   event_id: string;
   amount: number;
+  payment_date: string | null;
 };
 
 type Lancamento = {
@@ -141,6 +143,8 @@ export default function PagamentosPage() {
   );
 
   const [participacoes, setParticipacoes] = useState<Participacao[]>([]);
+  const [pagamentosMusicosCaixa, setPagamentosMusicosCaixa] = useState<Participacao[]>([]);
+  const [despesasCaixa, setDespesasCaixa] = useState<DespesaEvento[]>([]);
   const [fechamento, setFechamento] = useState<Fechamento | null>(null);
   const [fechamentos, setFechamentos] = useState<Fechamento[]>([]);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
@@ -218,7 +222,7 @@ export default function PagamentosPage() {
         supabase
           .from("event_revenue_receipts")
           .select(
-            "event_revenue_id,actual_amount,actual_receipt_date,status"
+            "event_revenue_id,description,actual_amount,actual_receipt_date,status"
           )
           .eq("status", "recebido"),
 
@@ -292,6 +296,7 @@ export default function PagamentosPage() {
       setRecebimentos(
         (recibosRes.data || []).map((r: any) => ({
           event_revenue_id: r.event_revenue_id,
+          description: r.description || "",
           actual_amount: Number(r.actual_amount || 0),
           actual_receipt_date: r.actual_receipt_date || null,
           status: r.status,
@@ -307,6 +312,46 @@ export default function PagamentosPage() {
           amount: Number(l.amount || 0),
           direction: l.direction,
           notes: l.notes || null,
+        }))
+      );
+
+      const pagamentosMusicosCaixaRes = await supabase
+        .from("event_musicians")
+        .select(
+          "id,event_id,musician_id,event_cache,payment_status,payment_date,musicians(name)"
+        )
+        .eq("payment_status", "pago");
+
+      if (pagamentosMusicosCaixaRes.error) {
+        throw pagamentosMusicosCaixaRes.error;
+      }
+
+      setPagamentosMusicosCaixa(
+        (pagamentosMusicosCaixaRes.data || []).map((p: any) => ({
+          id: p.id,
+          event_id: p.event_id,
+          musician_id: p.musician_id,
+          event_cache: Number(p.event_cache || 0),
+          payment_status: "pago",
+          payment_date: p.payment_date || null,
+          musician_name: p.musicians?.name || "Músico sem nome",
+        }))
+      );
+
+      const despesasCaixaRes = await supabase
+        .from("event_expenses")
+        .select("id,event_id,amount,payment_date");
+
+      if (despesasCaixaRes.error) {
+        throw despesasCaixaRes.error;
+      }
+
+      setDespesasCaixa(
+        (despesasCaixaRes.data || []).map((d: any) => ({
+          id: d.id,
+          event_id: d.event_id,
+          amount: Number(d.amount || 0),
+          payment_date: d.payment_date || null,
         }))
       );
 
@@ -335,7 +380,7 @@ export default function PagamentosPage() {
 
           supabase
             .from("event_expenses")
-            .select("id,event_id,amount")
+            .select("id,event_id,amount,payment_date")
             .in("event_id", idsEventos),
         ]);
 
@@ -358,6 +403,7 @@ export default function PagamentosPage() {
             id: d.id,
             event_id: d.event_id,
             amount: Number(d.amount || 0),
+            payment_date: d.payment_date || null,
           }))
         );
       } else {
@@ -464,52 +510,51 @@ export default function PagamentosPage() {
     ? semanasFechadas[semanasFechadas.length - 1]
     : null;
 
-  /*
-   * Para uma semana fechada:
-   * limite = final da própria semana.
-   *
-   * Para uma semana aberta:
-   * limite = último fechamento existente.
-   *
-   * Assim uma semana futura jamais mexe no caixa.
-   */
   const limiteFinanceiro = fechamento
     ? semanaFim
     : ultimoFechamento?.week_end || dataInicioCaixa;
 
   /*
-   * Recebimentos reais de eventos.
+   * CAIXA REAL:
    *
-   * NÃO usamos event_revenues.actual_amount para caixa,
-   * porque esse campo representa o estado da receita,
-   * e não necessariamente o movimento individual recebido.
+   * O saldo desta tela precisa representar somente dinheiro que
+   * realmente entrou ou saiu.
+   *
+   * Importante:
+   * - "Sinal" não é contado como nova entrada quando já compõe o
+   *   saldo inicial do caixa.
+   * - Músicos só saem quando payment_status = "pago".
+   * - Sócios só saem quando rodrigo_paid/marlon_paid = true.
+   * - Despesas de evento só saem quando possuem payment_date.
    */
-  const entradasEventosAteLimite = useMemo(() => {
-    return recebimentos
-      .filter(
-        (r) =>
-          r.status === "recebido" &&
-          r.actual_receipt_date &&
-          r.actual_receipt_date >= dataInicioCaixa &&
-          r.actual_receipt_date <= limiteFinanceiro
-      )
-      .reduce(
-        (total, r) =>
-          total + Number(r.actual_amount || 0),
-        0
-      );
+
+  const recebimentosReaisAteLimite = useMemo(() => {
+    return recebimentos.filter(
+      (r) =>
+        r.status === "recebido" &&
+        r.actual_receipt_date &&
+        r.actual_receipt_date >= dataInicioCaixa &&
+        r.actual_receipt_date <= limiteFinanceiro
+    );
   }, [
     recebimentos,
     dataInicioCaixa,
     limiteFinanceiro,
   ]);
 
-  /*
-   * Lançamentos manuais.
-   *
-   * Ignoramos registros automáticos antigos que poderiam duplicar
-   * receitas, pagamentos ou distribuições.
-   */
+  const entradasEventosAteLimite = useMemo(() => {
+    return recebimentosReaisAteLimite
+      .filter(
+        (r) =>
+          String(r.description || "").trim().toLowerCase() !== "sinal"
+      )
+      .reduce(
+      (total, r) =>
+        total + Number(r.actual_amount || 0),
+      0
+    );
+  }, [recebimentosReaisAteLimite]);
+
   const lancamentosManuaisAteLimite = useMemo(() => {
     return lancamentos.filter(
       (l) =>
@@ -542,18 +587,32 @@ export default function PagamentosPage() {
   }, [lancamentosManuaisAteLimite]);
 
   /*
-   * Obrigações de semanas FECHADAS.
-   *
-   * O caixa não recebe o group_cash_amount como entrada.
-   * O 50% da banda é apenas uma distribuição contábil.
-   *
-   * Saem do caixa:
-   * - músicos
-   * - Rodrigo
-   * - Marlon
-   * - despesas
+   * Pagamentos de músicos que realmente já saíram do caixa.
    */
-  const obrigacoesFechadas = useMemo(() => {
+  const saidasMusicosPagos = useMemo(() => {
+    return pagamentosMusicosCaixa
+      .filter(
+        (p) =>
+          p.payment_status === "pago" &&
+          p.payment_date &&
+          p.payment_date >= dataInicioCaixa &&
+          p.payment_date <= limiteFinanceiro
+      )
+      .reduce(
+        (total, p) =>
+          total + Number(p.event_cache || 0),
+        0
+      );
+  }, [
+    pagamentosMusicosCaixa,
+    dataInicioCaixa,
+    limiteFinanceiro,
+  ]);
+
+  /*
+   * Pagamentos dos sócios que realmente já saíram.
+   */
+  const saidasSociosPagos = useMemo(() => {
     return semanasFechadas
       .filter(
         (f) =>
@@ -561,13 +620,27 @@ export default function PagamentosPage() {
           f.week_end <= limiteFinanceiro
       )
       .reduce((total, f) => {
-        return (
-          total +
-          Number(f.total_musicians || 0) +
-          Number(f.total_other_expenses || 0) +
-          Number(f.rodrigo_amount || 0) +
-          Number(f.marlon_amount || 0)
-        );
+        let valor = 0;
+
+        if (
+          f.rodrigo_paid &&
+          f.rodrigo_payment_date &&
+          f.rodrigo_payment_date >= dataInicioCaixa &&
+          f.rodrigo_payment_date <= limiteFinanceiro
+        ) {
+          valor += Number(f.rodrigo_amount || 0);
+        }
+
+        if (
+          f.marlon_paid &&
+          f.marlon_payment_date &&
+          f.marlon_payment_date >= dataInicioCaixa &&
+          f.marlon_payment_date <= limiteFinanceiro
+        ) {
+          valor += Number(f.marlon_amount || 0);
+        }
+
+        return total + valor;
       }, 0);
   }, [
     semanasFechadas,
@@ -576,33 +649,72 @@ export default function PagamentosPage() {
   ]);
 
   /*
+   * Despesas de eventos:
+   * só consideramos como saída quando a despesa possui data de
+   * pagamento. Assim uma despesa cadastrada, mas ainda não paga,
+   * não reduz o caixa.
+   */
+  const saidasDespesasPagas = useMemo(() => {
+    return despesasCaixa.reduce(
+      (total, despesa: any) => {
+        const dataPagamento =
+          despesa.payment_date || null;
+
+        if (
+          !dataPagamento ||
+          dataPagamento < dataInicioCaixa ||
+          dataPagamento > limiteFinanceiro
+        ) {
+          return total;
+        }
+
+        return total + Number(despesa.amount || 0);
+      },
+      0
+    );
+  }, [
+    despesasCaixa,
+    dataInicioCaixa,
+    limiteFinanceiro,
+  ]);
+
+  /*
    * Saldo real do caixa.
    *
-   * Saldo inicial é saldo inicial.
-   * Não é uma nova entrada.
+   * Não usamos valores "a pagar" como se já tivessem saído.
    */
   const saldoCaixa =
     Number(saldoInicialCaixa || 0) +
     entradasEventosAteLimite +
     entradasManuais -
     saidasManuais -
-    obrigacoesFechadas;
+    saidasMusicosPagos -
+    saidasSociosPagos -
+    saidasDespesasPagas;
 
   /*
-   * Quanto entrou na semana selecionada.
+   * Quanto entrou de fato na semana.
    *
-   * Se a semana ainda não foi fechada, ZERO.
+   * O sinal já existente no caixa não é considerado nova entrada.
+   * Portanto, nesta tarjeta contamos apenas os recebimentos que
+   * não são descritos como "Sinal".
+   *
+   * Exemplo desta semana:
+   * R$ 4.950 recebidos no total
+   * - R$ 1.100 de sinais já existentes
+   * = R$ 3.850 de entrada nova.
    */
   const entradasEventosSemana = fechamento
     ? recebimentos
         .filter(
           (r) =>
             r.status === "recebido" &&
-            r.actual_receipt_date ===
-              r.actual_receipt_date &&
             r.actual_receipt_date &&
             r.actual_receipt_date >= semanaInicio &&
-            r.actual_receipt_date <= semanaFim
+            r.actual_receipt_date <= semanaFim &&
+            String(r.description || "")
+              .trim()
+              .toLowerCase() !== "sinal"
         )
         .reduce(
           (total, r) =>
@@ -629,6 +741,16 @@ export default function PagamentosPage() {
 
   const entrouNaSemana =
     entradasEventosSemana + entradasManuaisSemana;
+
+  /*
+   * Resultado líquido da semana salvo no fechamento.
+   * Usado apenas como informação no card.
+   */
+  const resultadoLiquidoSemana = Number(
+    fechamento?.total_received || 0
+  ) -
+    Number(fechamento?.total_musicians || 0) -
+    Number(fechamento?.total_other_expenses || 0);
 
   async function pagarMusico(item: PagamentoMusico) {
     if (item.pendente <= 0 || pagando) return;
@@ -893,24 +1015,21 @@ export default function PagamentosPage() {
 
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
             <p className="text-sm font-bold text-blue-700">
-              Entradas no caixa
+              Resultado líquido da semana
             </p>
 
             <p className="mt-2 text-2xl font-extrabold text-blue-900">
-              {moeda(
-                entradasEventosAteLimite +
-                  entradasManuais
-              )}
+              {moeda(resultadoLiquidoSemana)}
             </p>
 
             <p className="mt-1 text-xs text-blue-700">
-              Recebimentos reais + entradas manuais até o último fechamento
+              Resultado do fechamento: receitas − músicos − despesas
             </p>
           </div>
 
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-sm font-bold text-emerald-700">
-              Saldo após o fechamento
+              Saldo total do caixa
             </p>
 
             <p className="mt-2 text-2xl font-extrabold text-emerald-900">
@@ -918,7 +1037,7 @@ export default function PagamentosPage() {
             </p>
 
             <p className="mt-1 text-xs text-emerald-700">
-              Saldo inicial + dinheiro recebido − músicos − despesas − sócios
+              Dinheiro disponível no caixa após as movimentações reais
             </p>
           </div>
 
