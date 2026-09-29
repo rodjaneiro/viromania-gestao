@@ -547,6 +547,100 @@ export default function EventosPage() {
     }
   }
 
+  async function sincronizarRecebimentosComReceitas(eventosLista: Evento[]) {
+    if (!eventosLista.length) return;
+
+    const idsEventos = eventosLista.map((evento) => evento.id);
+
+    const { data: receitas, error: receitasError } = await supabase
+      .from("event_revenues")
+      .select("id,event_id,expected_amount,actual_amount,confirmed,status,actual_receipt_date")
+      .in("event_id", idsEventos);
+
+    if (receitasError) throw receitasError;
+    if (!receitas || receitas.length === 0) return;
+
+    const idsReceitas = receitas.map((receita: any) => receita.id);
+
+    const { data: parcelas, error: parcelasError } = await supabase
+      .from("event_revenue_receipts")
+      .select("id,event_revenue_id,expected_amount,actual_amount,actual_receipt_date,status")
+      .in("event_revenue_id", idsReceitas);
+
+    if (parcelasError) throw parcelasError;
+
+    const parcelasPorReceita = new Map<string, any[]>();
+
+    for (const parcela of parcelas || []) {
+      const lista = parcelasPorReceita.get(parcela.event_revenue_id) || [];
+      lista.push(parcela);
+      parcelasPorReceita.set(parcela.event_revenue_id, lista);
+    }
+
+    for (const receita of receitas as any[]) {
+      if (!receita.confirmed || receita.status === "cancelado") continue;
+      if (receita.status !== "recebido") continue;
+
+      const parcelasRecebidas = (parcelasPorReceita.get(receita.id) || [])
+        .filter((parcela) => parcela.status === "recebido");
+
+      const totalParcelasRecebidas = parcelasRecebidas.reduce(
+        (total, parcela) => total + Number(parcela.actual_amount || 0),
+        0
+      );
+
+      const valorRecebidoReceita = Number(
+        receita.actual_amount || receita.expected_amount || 0
+      );
+
+      if (valorRecebidoReceita > totalParcelasRecebidas) {
+        const diferenca = Number(
+          (valorRecebidoReceita - totalParcelasRecebidas).toFixed(2)
+        );
+
+        if (diferenca > 0) {
+          const { error } = await supabase
+            .from("event_revenue_receipts")
+            .insert({
+              event_revenue_id: receita.id,
+              description:
+                totalParcelasRecebidas > 0
+                  ? "Saldo final"
+                  : receita.description,
+              expected_amount: diferenca,
+              actual_amount: diferenca,
+              expected_receipt_date: receita.actual_receipt_date || null,
+              actual_receipt_date: receita.actual_receipt_date || null,
+              status: "recebido",
+              payment_method: null,
+              notes:
+                totalParcelasRecebidas > 0
+                  ? "Complemento automático para completar o valor já marcado como recebido."
+                  : "Recebimento sincronizado automaticamente.",
+            });
+
+          if (error) throw error;
+        }
+      } else if (totalParcelasRecebidas > valorRecebidoReceita) {
+        const ultimaData = parcelasRecebidas
+          .map((parcela) => parcela.actual_receipt_date)
+          .filter(Boolean)
+          .sort()
+          .at(-1) || receita.actual_receipt_date || null;
+
+        const { error } = await supabase
+          .from("event_revenues")
+          .update({
+            actual_amount: totalParcelasRecebidas,
+            actual_receipt_date: ultimaData,
+          })
+          .eq("id", receita.id);
+
+        if (error) throw error;
+      }
+    }
+  }
+
   async function carregarEventos() {
     const { data, error } = await supabase
       .from("events")
@@ -558,7 +652,15 @@ export default function EventosPage() {
       return;
     }
 
-    setEventos(data || []);
+    const eventosLista = data || [];
+
+    try {
+      await sincronizarRecebimentosComReceitas(eventosLista);
+    } catch (syncError) {
+      console.error("Erro ao sincronizar recebimentos:", syncError);
+    }
+
+    setEventos(eventosLista);
   }
   async function carregarInstrumentos() {
     const { data, error } = await supabase
@@ -1803,20 +1905,39 @@ async function abrirFechamentoEvento(evento: Evento) {
             0
           );
 
-        // Só cria o registro automático quando ainda não existe histórico.
-        if (totalParcelasRecebidas <= 0) {
+        // Se já existe sinal/alguma parcela, não podemos simplesmente parar aqui.
+        // O valor marcado como recebido na receita precisa estar totalmente
+        // representado nas parcelas, porque o Caixa usa essas parcelas como
+        // origem do dinheiro efetivamente recebido.
+        const valorTotalReceita = Number(
+          receita.actual_amount || receita.expected_amount || 0
+        );
+
+        const diferencaRecebimento = Number(
+          (valorTotalReceita - totalParcelasRecebidas).toFixed(2)
+        );
+
+        if (diferencaRecebimento > 0) {
           const { error: parcelaInsertError } = await supabase
             .from("event_revenue_receipts")
             .insert({
               event_revenue_id: receita.id,
-              description: receita.description,
-              expected_amount: Number(receita.expected_amount || 0),
-              actual_amount: Number(receita.actual_amount || 0),
-              expected_receipt_date: receita.expected_receipt_date || null,
-              actual_receipt_date: receita.actual_receipt_date || eventoFechando.event_date,
+              description:
+                totalParcelasRecebidas > 0
+                  ? "Saldo final"
+                  : receita.description,
+              expected_amount: diferencaRecebimento,
+              actual_amount: diferencaRecebimento,
+              expected_receipt_date:
+                receita.expected_receipt_date || eventoFechando.event_date,
+              actual_receipt_date:
+                receita.actual_receipt_date || eventoFechando.event_date,
               status: "recebido",
               payment_method: null,
-              notes: "Recebimento registrado no fechamento do evento",
+              notes:
+                totalParcelasRecebidas > 0
+                  ? "Complemento automático para completar o valor recebido do evento."
+                  : "Recebimento registrado no fechamento do evento",
             });
 
           if (parcelaInsertError) throw parcelaInsertError;
