@@ -88,7 +88,7 @@ function moeda(valor: number) {
 }
 
 function dataISO(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+  return `\({date.getFullYear()}-\){String(date.getMonth() + 1).padStart(
     2,
     "0"
   )}-${String(date.getDate()).padStart(2, "0")}`;
@@ -99,7 +99,7 @@ function dataBR(data: string | null | undefined) {
 
   const [ano, mes, dia] = data.split("-");
 
-  return `${dia}/${mes}/${ano}`;
+  return `\({dia}/\){mes}/${ano}`;
 }
 
 function segundaDaSemana(date: Date) {
@@ -142,21 +142,21 @@ export default function PagamentosPage() {
     dataISO(new Date())
   );
 
-  const [participacoes, setParticipacoes] = useState<Participacao[]>([]);
-  const [pagamentosMusicosCaixa, setPagamentosMusicosCaixa] = useState<Participacao[]>([]);
-  const [despesasCaixa, setDespesasCaixa] = useState<DespesaEvento[]>([]);
-  const [fechamento, setFechamento] = useState<Fechamento | null>(null);
-  const [fechamentos, setFechamentos] = useState<Fechamento[]>([]);
-  const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
-  const [receitasEventos, setReceitasEventos] = useState<ReceitaEvento[]>([]);
-  const [despesasEventos, setDespesasEventos] = useState<DespesaEvento[]>([]);
-  const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
+  const [participacoes, setParticipacoes] = useState([]);
+  const [pagamentosMusicosCaixa, setPagamentosMusicosCaixa] = useState([]);
+  const [despesasCaixa, setDespesasCaixa] = useState([]);
+  const [fechamento, setFechamento] = useState(null);
+  const [fechamentos, setFechamentos] = useState([]);
+  const [recebimentos, setRecebimentos] = useState([]);
+  const [receitasEventos, setReceitasEventos] = useState([]);
+  const [despesasEventos, setDespesasEventos] = useState([]);
+  const [lancamentos, setLancamentos] = useState([]);
 
   const [saldoInicialCaixa, setSaldoInicialCaixa] = useState(0);
   const [dataInicioCaixa, setDataInicioCaixa] = useState("1900-01-01");
 
   const [loading, setLoading] = useState(true);
-  const [pagando, setPagando] = useState<string | null>(null);
+  const [pagando, setPagando] = useState(null);
   const [mensagem, setMensagem] = useState("");
   const [erro, setErro] = useState("");
 
@@ -425,8 +425,8 @@ export default function PagamentosPage() {
     carregar();
   }, [semanaInicio, semanaFim]);
 
-  const pagamentosMusicos = useMemo<PagamentoMusico[]>(() => {
-    const mapa = new Map<string, PagamentoMusico>();
+  const pagamentosMusicos = useMemo(() => {
+    const mapa = new Map();
 
     for (const participacao of participacoes) {
       const atual =
@@ -474,12 +474,6 @@ export default function PagamentosPage() {
     0
   );
 
-  /*
-   * IMPORTANTE:
-   * Rodrigo e Marlon NÃO são recalculados nesta tela.
-   *
-   * O valor oficial vem do fechamento semanal já salvo.
-   */
   const valorRodrigo = Number(
     fechamento?.rodrigo_amount || 0
   );
@@ -494,18 +488,6 @@ export default function PagamentosPage() {
     totalPendenteMusicos +
     (fechamento?.rodrigo_paid ? 0 : valorRodrigo) +
     (fechamento?.marlon_paid ? 0 : valorMarlon);
-
-  /*
-   * =============================================================
-   * REGRA DEFINITIVA DA TELA PAGAMENTOS
-   * =============================================================
-   * 1. Eventos recebidos da semana = valor total recebido no
-   *    fechamento da semana.
-   * 2. Entrou novo no caixa = eventos recebidos - sinais.
-   * 3. Saldo anterior = caixa existente antes do inicio da semana.
-   * 4. Caixa final = saldo anterior + entrou na semana - sinais
-   *    - musicos pagos na semana.
-   */
 
   const valorRecebidoEventosSemana = Number(
     fechamento?.total_received || 0
@@ -600,17 +582,18 @@ export default function PagamentosPage() {
     semanaInicio,
   ]);
 
+  // CORREÇÃO DA DUPLA SUBTRAÇÃO DO SINAL:
+  // entrouNaSemana já é (valorRecebido - valorSinais). Não subtraímos valorSinaisSemana novamente.
   const saldoCaixa =
     saldoAnterior +
     entrouNaSemana -
-    valorSinaisSemana -
     pagamentoMusicosSemana;
 
   async function pagarMusico(item: PagamentoMusico) {
     if (item.pendente <= 0 || pagando) return;
 
     const confirmar = window.confirm(
-      `Confirmar pagamento de ${item.nome} no valor de ${moeda(
+      `Confirmar pagamento de \({item.nome} no valor de\){moeda(
         item.pendente
       )}?\n\nIsso marcará como pago todas as participações pendentes desta semana.`
     );
@@ -686,7 +669,7 @@ export default function PagamentosPage() {
     if (jaPago || valor <= 0) return;
 
     const confirmar = window.confirm(
-      `Confirmar pagamento de ${nome} no valor de ${moeda(
+      `Confirmar pagamento de \({nome} no valor de\){moeda(
         valor
       )}?`
     );
@@ -749,412 +732,3 @@ export default function PagamentosPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-100 p-4">
-        <div className="mx-auto max-w-7xl rounded-xl bg-white p-10 text-center shadow-sm">
-          Carregando pagamentos...
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-100 p-4 text-slate-800 sm:p-6">
-      <div className="mx-auto max-w-7xl">
-
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              VIROMANIA GESTÃO
-            </p>
-
-            <h1 className="text-3xl font-bold">
-              Pagamentos
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Tudo que precisa ser pago depois do fechamento da semana.
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => mudarSemana(-1)}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
-            >
-              ← Semana anterior
-            </button>
-
-            <button
-              type="button"
-              onClick={() => mudarSemana(1)}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
-            >
-              Próxima semana →
-            </button>
-          </div>
-        </div>
-
-        <section className="mb-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase text-slate-500">
-                Semana selecionada
-              </p>
-
-              <p className="mt-1 text-2xl font-bold">
-                {dataBR(semanaInicio)} até{" "}
-                {dataBR(semanaFim)}
-              </p>
-            </div>
-
-            {fechamento ? (
-              <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-700">
-                ✓ Fechamento realizado
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-100 px-4 py-2 text-sm font-bold text-amber-700">
-                Fechamento ainda não salvo
-              </span>
-            )}
-          </div>
-        </section>
-
-        {erro && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {erro}
-          </div>
-        )}
-
-        {mensagem && (
-          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">
-            {mensagem}
-          </div>
-        )}
-
-        <section className="mb-5 grid gap-3 md:grid-cols-3">
-
-          <div className="rounded-xl border border-purple-200 bg-purple-50 p-5">
-            <p className="text-sm font-bold text-purple-700">
-              Pagamento dos músicos da semana
-            </p>
-
-            <p className="mt-2 text-2xl font-extrabold text-purple-900">
-              {moeda(pagamentoMusicosSemana)}
-            </p>
-
-            <p className="mt-1 text-xs text-purple-700">
-              Total pago aos músicos nos eventos da semana.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-            <p className="text-sm font-bold text-emerald-700">
-              Valor que entrou no caixa na semana
-            </p>
-
-            <p className="mt-2 text-2xl font-extrabold text-emerald-900">
-              {moeda(entrouNaSemana)}
-            </p>
-
-            <p className="mt-1 text-xs text-emerald-700">
-              Eventos recebidos: {moeda(valorRecebidoEventosSemana)} • Sinais: {moeda(valorSinaisSemana)}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-            <p className="text-sm font-bold text-emerald-700">
-              Valor total do caixa
-            </p>
-
-            <p className="mt-2 text-2xl font-extrabold text-emerald-900">
-              {moeda(saldoCaixa)}
-            </p>
-
-            <p className="mt-1 text-xs text-emerald-700">
-              Caixa anterior + entradas da semana − sinais − músicos pagos.
-            </p>
-          </div>
-
-        </section>
-
-        <section className="mb-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-
-          <div className="border-b border-slate-200 p-5">
-            <h2 className="text-xl font-bold">
-              Pagamentos dos músicos
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Todos que tocaram em eventos realizados nesta semana.
-            </p>
-          </div>
-
-          {pagamentosMusicos.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">
-              Nenhum músico para pagar nesta semana.
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-200">
-
-              {pagamentosMusicos.map((item) => (
-                <div
-                  key={item.musician_id}
-                  className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="font-bold">
-                      {item.nome}
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      {item.eventos}{" "}
-                      {item.eventos === 1
-                        ? "evento"
-                        : "eventos"}{" "}
-                      • Total: {moeda(item.total)}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-
-                    <div className="text-right">
-                      <p className="text-[10px] font-bold uppercase text-slate-500">
-                        A pagar
-                      </p>
-
-                      <p className="text-xl font-extrabold">
-                        {moeda(item.pendente)}
-                      </p>
-
-                      <p className="text-xs text-slate-500">
-                        Pago: {moeda(item.pago)}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={
-                        item.pendente <= 0 ||
-                        pagando !== null
-                      }
-                      onClick={() =>
-                        pagarMusico(item)
-                      }
-                      className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {item.pendente <= 0
-                        ? "Pago"
-                        : pagando === item.musician_id
-                        ? "Pagando..."
-                        : `Pagar ${moeda(
-                            item.pendente
-                          )}`}
-                    </button>
-
-                  </div>
-                </div>
-              ))}
-
-            </div>
-          )}
-
-        </section>
-
-        <section className="mb-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-
-          <div className="mb-4">
-            <h2 className="text-xl font-bold">
-              Pagamentos dos sócios
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Rodrigo 25% e Marlon 25% do resultado da semana.
-            </p>
-          </div>
-
-          {!fechamento ? (
-            <div className="rounded-lg bg-amber-50 p-4 text-sm font-semibold text-amber-700">
-              Salve o fechamento da semana antes de pagar os sócios.
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-
-                <div className="flex items-center justify-between gap-4">
-
-                  <div>
-                    <p className="font-bold">
-                      Rodrigo
-                    </p>
-
-                    <p className="mt-1 text-xl font-extrabold">
-                      {moeda(valorRodrigo)}
-                    </p>
-
-                    <span
-                      className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${
-                        fechamento.rodrigo_paid
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {fechamento.rodrigo_paid
-                        ? `Pago em ${dataBR(
-                            fechamento.rodrigo_payment_date
-                          )}`
-                        : "Pendente"}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      pagarSocio("rodrigo")
-                    }
-                    disabled={
-                      fechamento.rodrigo_paid ||
-                      pagando !== null
-                    }
-                    className={`rounded-lg px-4 py-2 text-xs font-bold text-white ${
-                      fechamento.rodrigo_paid
-                        ? "bg-slate-400"
-                        : "bg-slate-900"
-                    }`}
-                  >
-                    {fechamento.rodrigo_paid
-                      ? "Pago"
-                      : pagando === "rodrigo"
-                      ? "Pagando..."
-                      : "Marcar como pago"}
-                  </button>
-
-                </div>
-
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-
-                <div className="flex items-center justify-between gap-4">
-
-                  <div>
-                    <p className="font-bold">
-                      Marlon
-                    </p>
-
-                    <p className="mt-1 text-xl font-extrabold">
-                      {moeda(valorMarlon)}
-                    </p>
-
-                    <span
-                      className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${
-                        fechamento.marlon_paid
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {fechamento.marlon_paid
-                        ? `Pago em ${dataBR(
-                            fechamento.marlon_payment_date
-                          )}`
-                        : "Pendente"}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      pagarSocio("marlon")
-                    }
-                    disabled={
-                      fechamento.marlon_paid ||
-                      pagando !== null
-                    }
-                    className={`rounded-lg px-4 py-2 text-xs font-bold text-white ${
-                      fechamento.marlon_paid
-                        ? "bg-slate-400"
-                        : "bg-slate-900"
-                    }`}
-                  >
-                    {fechamento.marlon_paid
-                      ? "Pago"
-                      : pagando === "marlon"
-                      ? "Pagando..."
-                      : "Marcar como pago"}
-                  </button>
-
-                </div>
-
-              </div>
-
-            </div>
-          )}
-
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-
-          <h2 className="text-lg font-bold">
-            Resumo financeiro da semana
-          </h2>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-
-            <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Músicos
-              </p>
-
-              <p className="mt-1 text-lg font-bold">
-                {moeda(totalMusicos)}
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Músicos pagos
-              </p>
-
-              <p className="mt-1 text-lg font-bold">
-                {moeda(totalPagoMusicos)}
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Músicos pendentes
-              </p>
-
-              <p className="mt-1 text-lg font-bold">
-                {moeda(totalPendenteMusicos)}
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Sócios
-              </p>
-
-              <p className="mt-1 text-lg font-bold">
-                {moeda(totalSocios)}
-              </p>
-            </div>
-
-          </div>
-
-        </section>
-
-        <div className="mt-6">
-          <a
-            href="/"
-            className="inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            ← Voltar ao início
-          </a>
-        </div>
-
-      </div>
-    </main>
-  );
-}
