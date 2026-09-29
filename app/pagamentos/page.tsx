@@ -812,7 +812,7 @@ export default function PagamentosPage() {
               VIROMANIA GESTÃO
             </p>
             <h1 className="mt-1 text-3xl font-extrabold">
-              Pagamentos — NOVO TESTE
+              Pagamentos
             </h1>
             <p className="mt-2 text-sm text-slate-500">
               Tudo que precisa ser pago depois do fechamento da semana.
