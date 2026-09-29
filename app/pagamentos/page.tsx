@@ -44,6 +44,15 @@ type Recebimento = {
   status: string;
 };
 
+type SinalDetalhe = {
+  event_revenue_id: string;
+  descricao: string;
+  valor: number;
+  data: string | null;
+  event_id: string | null;
+  evento: string;
+};
+
 type Lancamento = {
   id: string;
   transaction_date: string;
@@ -125,6 +134,7 @@ export default function PagamentosPage() {
   const [participacoes, setParticipacoes] = useState<Participacao[]>([]);
   const [fechamento, setFechamento] = useState<Fechamento | null>(null);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
+  const [sinaisDetalhes, setSinaisDetalhes] = useState<SinalDetalhe[]>([]);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [saldoInicialCaixa, setSaldoInicialCaixa] = useState<number>(0);
 
@@ -160,6 +170,7 @@ export default function PagamentosPage() {
         fechamentoRes,
         configRes,
         recebimentosRes,
+        receitasRes,
         lancamentosRes,
       ] = await Promise.all([
         supabase
@@ -192,6 +203,10 @@ export default function PagamentosPage() {
           .eq("status", "recebido"),
 
         supabase
+          .from("event_revenues")
+          .select("id,event_id,description") ,
+
+        supabase
           .from("cash_transactions")
           .select(
             "id,transaction_date,description,transaction_type,amount,direction,notes"
@@ -203,6 +218,7 @@ export default function PagamentosPage() {
       if (fechamentoRes.error) throw fechamentoRes.error;
       if (configRes.error) throw configRes.error;
       if (recebimentosRes.error) throw recebimentosRes.error;
+      if (receitasRes.error) throw receitasRes.error;
       if (lancamentosRes.error) throw lancamentosRes.error;
 
       const eventosRealizados = ((eventosRes.data || []) as Evento[]).filter(
@@ -269,6 +285,48 @@ export default function PagamentosPage() {
           })
         )
       );
+
+      const mapaReceitas = new Map<string, { event_id: string; description: string }>();
+      for (const receita of receitasRes.data || []) {
+        mapaReceitas.set(String(receita.id), {
+          event_id: String(receita.event_id),
+          description: String(receita.description || ""),
+        });
+      }
+
+      const mapaEventos = new Map<string, string>();
+      for (const evento of eventosRes.data || []) {
+        mapaEventos.set(String(evento.id), String(evento.name || "Evento sem nome"));
+      }
+
+      const detalhesSinais: SinalDetalhe[] = (recebimentosRes.data || [])
+        .filter((r: any) => {
+          const descricao = String(r.description || "").trim().toLowerCase();
+          const data = r.actual_receipt_date || "";
+          return (
+            r.status === "recebido" &&
+            !!r.actual_receipt_date &&
+            data >= semanaInicio &&
+            data <= semanaFim &&
+            (descricao === "sinal" || descricao.startsWith("sinal "))
+          );
+        })
+        .map((r: any): SinalDetalhe => {
+          const receita = mapaReceitas.get(String(r.event_revenue_id));
+          const evento = receita?.event_id
+            ? mapaEventos.get(receita.event_id) || "Evento não encontrado"
+            : "Receita não vinculada a evento";
+          return {
+            event_revenue_id: String(r.event_revenue_id),
+            descricao: String(r.description || ""),
+            valor: Number(r.actual_amount || 0),
+            data: r.actual_receipt_date || null,
+            event_id: receita?.event_id || null,
+            evento,
+          };
+        });
+
+      setSinaisDetalhes(detalhesSinais);
 
       setLancamentos(
         (lancamentosRes.data || []).map(
@@ -366,25 +424,11 @@ export default function PagamentosPage() {
 
   const valorSinaisSemana = useMemo(
     () =>
-      recebimentos
-        .filter((r) => {
-          const descricao = String(r.description || "")
-            .trim()
-            .toLowerCase();
-
-          return (
-            r.status === "recebido" &&
-            !!r.actual_receipt_date &&
-            r.actual_receipt_date >= semanaInicio &&
-            r.actual_receipt_date <= semanaFim &&
-            (descricao === "sinal" || descricao.startsWith("sinal "))
-          );
-        })
-        .reduce(
-          (total, r) => total + Number(r.actual_amount || 0),
-          0
-        ),
-    [recebimentos, semanaInicio, semanaFim]
+      sinaisDetalhes.reduce(
+        (total, sinal) => total + Number(sinal.valor || 0),
+        0
+      ),
+    [sinaisDetalhes]
   );
 
   // REGRA DEFINIDA:
@@ -633,6 +677,50 @@ export default function PagamentosPage() {
               Eventos recebidos: {moeda(valorRecebidoEventosSemana)} • Sinais:{" "}
               {moeda(valorSinaisSemana)}
             </p>
+          </div>
+
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-5">
+            <h2 className="text-base font-extrabold text-amber-900">
+              🔎 Diagnóstico dos sinais encontrados nesta semana
+            </h2>
+            <p className="mt-1 text-sm text-amber-800">
+              Esta lista é temporária. Ela mostra exatamente quais registros a página está somando como “Sinal”.
+            </p>
+            {sinaisDetalhes.length === 0 ? (
+              <p className="mt-3 text-sm font-semibold text-amber-900">
+                Nenhum sinal encontrado entre {dataBR(semanaInicio)} e {dataBR(semanaFim)}.
+              </p>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-amber-200 text-amber-900">
+                      <th className="px-2 py-2">Evento</th>
+                      <th className="px-2 py-2">Descrição</th>
+                      <th className="px-2 py-2">Data</th>
+                      <th className="px-2 py-2 text-right">Valor</th>
+                      <th className="px-2 py-2">ID da receita</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sinaisDetalhes.map((sinal, index) => (
+                      <tr key={`${sinal.event_revenue_id}-${index}`} className="border-b border-amber-100 last:border-0">
+                        <td className="px-2 py-2 font-semibold">{sinal.evento}</td>
+                        <td className="px-2 py-2">{sinal.descricao}</td>
+                        <td className="px-2 py-2">{dataBR(sinal.data)}</td>
+                        <td className="px-2 py-2 text-right font-bold">{moeda(sinal.valor)}</td>
+                        <td className="px-2 py-2 text-xs text-slate-500">{sinal.event_revenue_id}</td>
+                      </tr>
+                    ))}
+                    <tr className="font-extrabold text-amber-950">
+                      <td className="px-2 py-3" colSpan={3}>Total dos sinais encontrados</td>
+                      <td className="px-2 py-3 text-right">{moeda(valorSinaisSemana)}</td>
+                      <td />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
