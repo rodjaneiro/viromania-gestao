@@ -552,11 +552,75 @@ export default function PagamentosPage() {
       );
   }, [recebimentos, idsReceitasEventosSemana]);
 
+  // =============================================================
+  // REGRA DEFINITIVA DO CAIXA NA TELA DE PAGAMENTOS
+  // =============================================================
+  // Valor recebido dos eventos da semana = todos os recebimentos
+  // efetivamente registrados para os eventos realizados da semana.
+  //
+  // Valor novo que entrou no caixa = recebido dos eventos - sinais.
+  // O sinal já fazia parte do caixa anterior.
+  //
+  // Saldo total do caixa = saldo que já existia + valor novo que
+  // entrou - sinal - pagamentos dos músicos realizados na semana.
+  // Nada de resultado líquido, sócios, despesas ou obrigações entra
+  // neste cálculo desta tela.
+
+  const valorRecebidoEventosSemana = useMemo(() => {
+    return recebimentos
+      .filter(
+        (r) =>
+          r.status === "recebido" &&
+          !!r.actual_receipt_date &&
+          r.actual_receipt_date >= semanaInicio &&
+          r.actual_receipt_date <= semanaFim &&
+          idsReceitasEventosSemana.has(r.event_revenue_id)
+      )
+      .reduce(
+        (total, r) => total + Number(r.actual_amount || 0),
+        0
+      );
+  }, [
+    recebimentos,
+    semanaInicio,
+    semanaFim,
+    idsReceitasEventosSemana,
+  ]);
+
+  const valorSinaisSemana = useMemo(() => {
+    return recebimentos
+      .filter(
+        (r) =>
+          r.status === "recebido" &&
+          !!r.actual_receipt_date &&
+          r.actual_receipt_date >= semanaInicio &&
+          r.actual_receipt_date <= semanaFim &&
+          idsReceitasEventosSemana.has(r.event_revenue_id) &&
+          String(r.description || "")
+            .trim()
+            .toLowerCase()
+            .includes("sinal")
+      )
+      .reduce(
+        (total, r) => total + Number(r.actual_amount || 0),
+        0
+      );
+  }, [
+    recebimentos,
+    semanaInicio,
+    semanaFim,
+    idsReceitasEventosSemana,
+  ]);
+
+  // Dinheiro novo que entrou depois de retirar o sinal que já estava
+  // contabilizado no saldo anterior.
   const entrouNaSemana = Math.max(
     valorRecebidoEventosSemana - valorSinaisSemana,
     0
   );
 
+  // O usuário pediu que o caixa desconte somente o que foi efetivamente
+  // pago aos músicos nesta semana.
   const pagamentoMusicosSemana = totalPagoMusicos;
 
   const saldoCaixa =
@@ -799,12 +863,11 @@ export default function PagamentosPage() {
             </p>
 
             <p className="mt-2 text-2xl font-extrabold text-purple-900">
-              {moeda(totalPagar)}
+              {moeda(pagamentoMusicosSemana)}
             </p>
 
             <p className="mt-1 text-xs text-purple-700">
-              Total: {moeda(totalMusicos)} • Já pago:{" "}
-              {moeda(totalPagoMusicos)}
+              Total pago aos músicos nos eventos da semana.
             </p>
           </div>
 
@@ -818,9 +881,7 @@ export default function PagamentosPage() {
             </p>
 
             <p className="mt-1 text-xs text-emerald-700">
-              {fechamento
-                ? `Eventos recebidos: ${moeda(valorRecebidoEventosSemana)} − sinais: ${moeda(valorSinaisSemana)}`
-                : "A semana ainda não foi fechada."}
+              Eventos recebidos {moeda(valorRecebidoEventosSemana)} − sinais {moeda(valorSinaisSemana)}
             </p>
           </div>
 
@@ -834,7 +895,7 @@ export default function PagamentosPage() {
             </p>
 
             <p className="mt-1 text-xs text-emerald-700">
-              Saldo anterior + entradas da semana − sinais − músicos pagos
+              Caixa anterior + entradas − sinais − músicos pagos.
             </p>
           </div>
 
