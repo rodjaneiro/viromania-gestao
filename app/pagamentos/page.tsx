@@ -172,6 +172,7 @@ export default function PagamentosPage() {
         recebimentosRes,
         receitasRes,
         lancamentosRes,
+        todosEventosRes,
       ] = await Promise.all([
         supabase
           .from("events")
@@ -212,6 +213,11 @@ export default function PagamentosPage() {
             "id,transaction_date,description,transaction_type,amount,direction,notes"
           )
           .order("transaction_date", { ascending: true }),
+
+        supabase
+          .from("events")
+          .select("id,name,event_date,status")
+          .order("event_date"),
       ]);
 
       if (eventosRes.error) throw eventosRes.error;
@@ -220,6 +226,7 @@ export default function PagamentosPage() {
       if (recebimentosRes.error) throw recebimentosRes.error;
       if (receitasRes.error) throw receitasRes.error;
       if (lancamentosRes.error) throw lancamentosRes.error;
+      if (todosEventosRes.error) throw todosEventosRes.error;
 
       const eventosRealizados = ((eventosRes.data || []) as Evento[]).filter(
         (evento) => evento.status === "realizado"
@@ -295,7 +302,7 @@ export default function PagamentosPage() {
       }
 
       const mapaEventos = new Map<string, string>();
-      for (const evento of eventosRes.data || []) {
+      for (const evento of todosEventosRes.data || []) {
         mapaEventos.set(String(evento.id), String(evento.name || "Evento sem nome"));
       }
 
