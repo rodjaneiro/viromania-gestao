@@ -1533,16 +1533,72 @@ export default function EventosPage() {
           .filter((p: any) => p.status === "recebido")
           .reduce((sum: number, p: any) => sum + Number(p.actual_amount || 0), 0);
 
+        const valorPrevistoReceita = Number(receita.expected_amount || 0);
+        const novoStatus =
+          totalRecebido <= 0
+            ? "pendente"
+            : totalRecebido >= valorPrevistoReceita
+              ? "recebido"
+              : "parcial";
+
         const { error: receitaUpdateError } = await supabase
           .from("event_revenues")
           .update({
             actual_amount: totalRecebido,
-            status: totalRecebido > 0 ? "recebido" : "pendente",
+            status: novoStatus,
           })
           .eq("id", receita.id);
 
         if (receitaUpdateError) throw receitaUpdateError;
       }
+
+      // Mantém também o resumo do evento sincronizado com as receitas.
+      const { data: receitasDoEvento, error: resumoEventoError } = await supabase
+        .from("event_revenues")
+        .select("expected_amount,actual_amount,status,confirmed,actual_receipt_date")
+        .eq("event_id", eventoRecebimentos.id);
+
+      if (resumoEventoError) throw resumoEventoError;
+
+      const receitasConfirmadas = (receitasDoEvento || []).filter(
+        (receita: any) => receita.confirmed !== false && receita.status !== "cancelado"
+      );
+
+      const totalPrevistoEvento = receitasConfirmadas.reduce(
+        (sum: number, receita: any) => sum + Number(receita.expected_amount || 0),
+        0
+      );
+
+      const totalRecebidoEvento = receitasConfirmadas.reduce(
+        (sum: number, receita: any) => sum + Number(receita.actual_amount || 0),
+        0
+      );
+
+      const datasRecebimentoEvento = receitasConfirmadas
+        .map((receita: any) => receita.actual_receipt_date)
+        .filter(Boolean)
+        .sort();
+
+      const statusEvento =
+        totalRecebidoEvento <= 0
+          ? "agendado"
+          : totalRecebidoEvento >= totalPrevistoEvento
+            ? "realizado"
+            : "agendado";
+
+      const { error: eventoResumoError } = await supabase
+        .from("events")
+        .update({
+          actual_amount: totalRecebidoEvento,
+          actual_receipt_date:
+            datasRecebimentoEvento.length > 0
+              ? datasRecebimentoEvento[datasRecebimentoEvento.length - 1]
+              : null,
+          status: statusEvento,
+        })
+        .eq("id", eventoRecebimentos.id);
+
+      if (eventoResumoError) throw eventoResumoError;
 
       alert("Recebimentos salvos com sucesso!");
       setEventoRecebimentos(null);
@@ -1720,6 +1776,51 @@ async function abrirFechamentoEvento(evento: Evento) {
       if (eventoError) {
         console.error(eventoError);
         throw new Error(`Erro ao fechar o evento: ${eventoError.message}`);
+      }
+
+      // O fechamento também precisa deixar um registro de caixa por recebimento.
+      // Se o evento já possui parcelas, elas são preservadas para não duplicar histórico.
+      for (const receita of receitasAtualizadas) {
+        if (
+          !receita.confirmed ||
+          receita.status !== "recebido" ||
+          Number(receita.actual_amount || 0) <= 0
+        ) {
+          continue;
+        }
+
+        const { data: parcelasExistentes, error: parcelasBuscaError } = await supabase
+          .from("event_revenue_receipts")
+          .select("id,actual_amount,status")
+          .eq("event_revenue_id", receita.id);
+
+        if (parcelasBuscaError) throw parcelasBuscaError;
+
+        const totalParcelasRecebidas = (parcelasExistentes || [])
+          .filter((parcela: any) => parcela.status === "recebido")
+          .reduce(
+            (sum: number, parcela: any) => sum + Number(parcela.actual_amount || 0),
+            0
+          );
+
+        // Só cria o registro automático quando ainda não existe histórico.
+        if (totalParcelasRecebidas <= 0) {
+          const { error: parcelaInsertError } = await supabase
+            .from("event_revenue_receipts")
+            .insert({
+              event_revenue_id: receita.id,
+              description: receita.description,
+              expected_amount: Number(receita.expected_amount || 0),
+              actual_amount: Number(receita.actual_amount || 0),
+              expected_receipt_date: receita.expected_receipt_date || null,
+              actual_receipt_date: receita.actual_receipt_date || eventoFechando.event_date,
+              status: "recebido",
+              payment_method: null,
+              notes: "Recebimento registrado no fechamento do evento",
+            });
+
+          if (parcelaInsertError) throw parcelaInsertError;
+        }
       }
 
       alert(

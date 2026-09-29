@@ -17,13 +17,6 @@ type Receita = {
   expected_amount: number;
   actual_amount: number;
   confirmed: boolean;
-  status: "pendente" | "recebido" | "cancelado";
-};
-
-type Recebimento = {
-  event_revenue_id: string;
-  actual_amount: number;
-  actual_receipt_date: string | null;
   status: string;
 };
 
@@ -31,8 +24,8 @@ type MusicoEvento = {
   id: string;
   event_id: string;
   musician_id: string;
-  event_cache: number | null;
-  payment_status: "pendente" | "pago";
+  event_cache: number;
+  payment_status: string;
   payment_date: string | null;
 };
 
@@ -81,7 +74,7 @@ type Ensaio = {
   rehearsal_date: string;
 };
 
-type PresencaEnsaio = {
+type Presenca = {
   id: string;
   rehearsal_id: string;
   musician_id: string;
@@ -97,7 +90,7 @@ type Bonificacao = {
   notes: string | null;
 };
 
-type PremioBonificacao = {
+type Premio = {
   id: string;
   bonus_id: string;
   musician_id: string;
@@ -113,38 +106,14 @@ type LinhaMusico = {
   eventos: number;
   ensaios: number;
   participacoes: number;
-  datas: number;
   totalCache: number;
   cachePago: number;
   cachePendente: number;
-  media: number;
   instrumentos: string;
   bonusPago: number;
   bonusPendente: number;
   quantidadeBonus: number;
 };
-
-
-function musicoEhFixo(musico: Musico | undefined) {
-  const tipo = String(musico?.type || "")
-    .trim()
-    .toLowerCase();
-
-  const nome = String(musico?.name || "")
-    .trim()
-    .toLowerCase();
-
-  const nomesFreelancers = new Set([
-    "joão vitor",
-    "ronaldo",
-    "wiglis",
-  ]);
-
-  return (
-    tipo === "fixo" &&
-    !nomesFreelancers.has(nome)
-  );
-}
 
 function moeda(valor: number) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -157,22 +126,25 @@ function dataBR(data: string | null | undefined) {
   if (!data) return "-";
 
   const [ano, mes, dia] = data.split("-");
-
   return `${dia}/${mes}/${ano}`;
 }
 
-function primeiroDiaDoMes() {
-  const agora = new Date();
+function primeiroDiaMes() {
+  const hoje = new Date();
 
-  return `${agora.getFullYear()}-${String(
-    agora.getMonth() + 1
+  return `${hoje.getFullYear()}-${String(
+    hoje.getMonth() + 1
   ).padStart(2, "0")}-01`;
 }
 
-function ultimoDiaDoMes(mes: string) {
+function ultimoDiaMes(mes: string) {
   const [ano, numeroMes] = mes.split("-").map(Number);
 
-  const ultimo = new Date(ano, numeroMes, 0).getDate();
+  const ultimo = new Date(
+    ano,
+    numeroMes,
+    0
+  ).getDate();
 
   return `${ano}-${String(numeroMes).padStart(
     2,
@@ -195,18 +167,12 @@ function nomeMes(mes: string) {
   });
 }
 
-function mesAnterior(mes: string) {
-  const [ano, numeroMes] = mes.split("-").map(Number);
-
-  const data = new Date(
-    ano,
-    numeroMes - 2,
-    1
+function musicoFixo(musico?: Musico) {
+  return (
+    String(musico?.type || "")
+      .trim()
+      .toLowerCase() === "fixo"
   );
-
-  return `${data.getFullYear()}-${String(
-    data.getMonth() + 1
-  ).padStart(2, "0")}`;
 }
 
 export default function RelatoriosPage() {
@@ -215,78 +181,50 @@ export default function RelatoriosPage() {
   >("mes");
 
   const [mes, setMes] = useState(
-    primeiroDiaDoMes().slice(0, 7)
+    primeiroDiaMes().slice(0, 7)
   );
 
   const [ano, setAno] = useState(
-    String(new Date().getFullYear())
+    new Date().getFullYear()
   );
 
-  const [inicio, setInicio] = useState(
-    primeiroDiaDoMes()
-  );
+  const [inicioPersonalizado, setInicioPersonalizado] =
+    useState(primeiroDiaMes());
 
-  const [fim, setFim] = useState(
-    ultimoDiaDoMes(
-      primeiroDiaDoMes().slice(0, 7)
-    )
-  );
+  const [fimPersonalizado, setFimPersonalizado] =
+    useState(primeiroDiaMes());
 
-  const [eventos, setEventos] = useState<Evento[]>(
-    []
-  );
-
-  const [receitas, setReceitas] = useState<
-    Receita[]
-  >([]);
-
-  const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
-
-  const [musicosEvento, setMusicosEvento] =
+  const [eventos, setEventos] = useState<Evento[]>([]);
+  const [receitas, setReceitas] = useState<Receita[]>([]);
+  const [musicosEventos, setMusicosEventos] =
     useState<MusicoEvento[]>([]);
-
-  const [musicos, setMusicos] = useState<Musico[]>(
-    []
-  );
-
-  const [instrumentosEvento, setInstrumentosEvento] =
+  const [musicos, setMusicos] = useState<Musico[]>([]);
+  const [instrumentosEventos, setInstrumentosEventos] =
     useState<InstrumentoEvento[]>([]);
-
-  const [instrumentos, setInstrumentos] = useState<
-    Instrumento[]
-  >([]);
-
-  const [despesas, setDespesas] = useState<
-    Despesa[]
-  >([]);
-
-  const [fechamentos, setFechamentos] = useState<
-    Fechamento[]
-  >([]);
-
-  const [ensaios, setEnsaios] = useState<Ensaio[]>(
-    []
-  );
-
-  const [presencasEnsaio, setPresencasEnsaio] =
-    useState<PresencaEnsaio[]>([]);
-
+  const [instrumentos, setInstrumentos] =
+    useState<Instrumento[]>([]);
+  const [despesas, setDespesas] = useState<Despesa[]>([]);
+  const [fechamentos, setFechamentos] =
+    useState<Fechamento[]>([]);
+  const [ensaios, setEnsaios] = useState<Ensaio[]>([]);
+  const [presencas, setPresencas] =
+    useState<Presenca[]>([]);
   const [bonificacoes, setBonificacoes] =
     useState<Bonificacao[]>([]);
-
-  const [premiosBonificacao, setPremiosBonificacao] =
-    useState<PremioBonificacao[]>([]);
+  const [premios, setPremios] =
+    useState<Premio[]>([]);
 
   const [carregando, setCarregando] =
     useState(true);
 
-  const [mensagem, setMensagem] = useState("");
+  const [mensagem, setMensagem] =
+    useState("");
 
   const periodo = useMemo(() => {
     if (modo === "mes") {
       return {
         inicio: `${mes}-01`,
-        fim: ultimoDiaDoMes(mes),
+        fim: ultimoDiaMes(mes),
       };
     }
 
@@ -298,10 +236,16 @@ export default function RelatoriosPage() {
     }
 
     return {
-      inicio,
-      fim,
+      inicio: inicioPersonalizado,
+      fim: fimPersonalizado,
     };
-  }, [modo, mes, ano, inicio, fim]);
+  }, [
+    modo,
+    mes,
+    ano,
+    inicioPersonalizado,
+    fimPersonalizado,
+  ]);
 
   async function carregarDados() {
     try {
@@ -311,15 +255,16 @@ export default function RelatoriosPage() {
       const [
         eventosRes,
         receitasRes,
-        recebimentosRes,
-        musicosEventoRes,
+        musicosEventosRes,
         musicosRes,
-        instrumentosEventoRes,
+        instrumentosEventosRes,
         instrumentosRes,
         despesasRes,
         fechamentosRes,
         ensaiosRes,
+        presencasRes,
         bonificacoesRes,
+        premiosRes,
       ] = await Promise.all([
         supabase
           .from("events")
@@ -345,11 +290,6 @@ export default function RelatoriosPage() {
           ),
 
         supabase
-          .from("event_revenue_receipts")
-          .select("event_revenue_id,actual_amount,actual_receipt_date,status")
-          .eq("status", "recebido"),
-
-        supabase
           .from("event_musicians")
           .select(
             "id,event_id,musician_id,event_cache,payment_status,payment_date"
@@ -357,7 +297,9 @@ export default function RelatoriosPage() {
 
         supabase
           .from("musicians")
-          .select("id,name,type")
+          .select(
+            "id,name,type"
+          )
           .order("name"),
 
         supabase
@@ -368,7 +310,9 @@ export default function RelatoriosPage() {
 
         supabase
           .from("instruments")
-          .select("id,name"),
+          .select(
+            "id,name"
+          ),
 
         supabase
           .from("event_expenses")
@@ -378,10 +322,10 @@ export default function RelatoriosPage() {
 
         supabase
           .from("weekly_closings")
-  .select("*")
-  .order("week_start", {
-    ascending: true,
-  }),
+          .select("*")
+          .order("week_start", {
+            ascending: true,
+          }),
 
         supabase
           .from("rehearsals")
@@ -395,90 +339,84 @@ export default function RelatoriosPage() {
           .lte(
             "rehearsal_date",
             periodo.fim
-          )
-          .order("rehearsal_date"),
+          ),
 
         supabase
-          .from("monthly_bonuses")
-          .select("*")
-          .gte(
-            "reference_month",
-            periodo.inicio
-          )
-          .lte(
-            "reference_month",
-            periodo.fim
-          )
-          .order("reference_month"),
+          .from("rehearsal_attendance")
+          .select(
+            "id,rehearsal_id,musician_id,present"
+          ),
+
+        supabase
+          .from("bonuses")
+          .select("*"),
+
+        supabase
+          .from("bonus_awards")
+          .select("*"),
       ]);
 
-      const erros = [
-        eventosRes,
-        receitasRes,
-        recebimentosRes,
-        musicosEventoRes,
-        musicosRes,
-        instrumentosEventoRes,
-        instrumentosRes,
-        despesasRes,
-        fechamentosRes,
-        ensaiosRes,
-        bonificacoesRes,
-      ].filter((res) => res.error);
+      if (eventosRes.error)
+        throw eventosRes.error;
 
-      if (erros.length > 0) {
-        console.error(erros);
+      if (receitasRes.error)
+        throw receitasRes.error;
 
-        setMensagem(
-          erros[0].error?.message ||
-            "Erro ao carregar relatório."
-        );
-      }
+      if (musicosEventosRes.error)
+        throw musicosEventosRes.error;
 
-      const eventosData =
-        eventosRes.data || [];
+      if (musicosRes.error)
+        throw musicosRes.error;
 
-      const ensaiosData =
-        ensaiosRes.data || [];
+      if (instrumentosEventosRes.error)
+        throw instrumentosEventosRes.error;
 
-      const bonificacoesData =
-        bonificacoesRes.data || [];
+      if (instrumentosRes.error)
+        throw instrumentosRes.error;
 
-      setEventos(eventosData as Evento[]);
+      if (despesasRes.error)
+        throw despesasRes.error;
+
+      if (fechamentosRes.error)
+        throw fechamentosRes.error;
+
+      if (ensaiosRes.error)
+        throw ensaiosRes.error;
+
+      if (presencasRes.error)
+        throw presencasRes.error;
+
+      if (bonificacoesRes.error)
+        throw bonificacoesRes.error;
+
+      if (premiosRes.error)
+        throw premiosRes.error;
+
+      setEventos(
+        (eventosRes.data || []) as Evento[]
+      );
 
       setReceitas(
         (receitasRes.data || []).map(
-          (item: any) => ({
-            ...item,
+          (r: any) => ({
+            ...r,
             expected_amount: Number(
-              item.expected_amount || 0
+              r.expected_amount || 0
             ),
             actual_amount: Number(
-              item.actual_amount || 0
+              r.actual_amount || 0
             ),
           })
         )
       );
 
-      setRecebimentos(
-        (recebimentosRes.data || []).map((item: any) => ({
-          event_revenue_id: item.event_revenue_id,
-          actual_amount: Number(item.actual_amount || 0),
-          actual_receipt_date: item.actual_receipt_date || null,
-          status: item.status || "recebido",
-        }))
-      );
-
-      setMusicosEvento(
-        (musicosEventoRes.data || []).map(
-          (item: any) => ({
-            ...item,
+      setMusicosEventos(
+        (musicosEventosRes.data || []).map(
+          (m: any) => ({
+            ...m,
             event_cache: Number(
-              item.event_cache || 0
+              m.event_cache || 0
             ),
-            payment_status:
-              item.payment_status ||
-              "pendente",
           })
         )
       );
@@ -487,133 +425,80 @@ export default function RelatoriosPage() {
         (musicosRes.data || []) as Musico[]
       );
 
-      setInstrumentosEvento(
-        (instrumentosEventoRes.data ||
-          []) as InstrumentoEvento[]
+      setInstrumentosEventos(
+        (instrumentosEventosRes.data || []) as InstrumentoEvento[]
       );
 
       setInstrumentos(
-        (instrumentosRes.data ||
-          []) as Instrumento[]
+        (instrumentosRes.data || []) as Instrumento[]
       );
 
       setDespesas(
         (despesasRes.data || []).map(
-          (item: any) => ({
-            ...item,
+          (d: any) => ({
+            ...d,
             amount: Number(
-              item.amount || 0
+              d.amount || 0
             ),
           })
         )
       );
 
-      const fechamentosDoPeriodo =
-  (fechamentosRes.data || []).filter(
-    (fechamento: any) =>
-      fechamento.week_start <= periodo.fim &&
-      fechamento.week_end >= periodo.inicio
-  );
-
-setFechamentos(
-  fechamentosDoPeriodo as Fechamento[]
-);;
+      setFechamentos(
+        (fechamentosRes.data || []).map(
+          (f: any) => ({
+            ...f,
+            total_confirmed: Number(
+              f.total_confirmed || 0
+            ),
+            total_received: Number(
+              f.total_received || 0
+            ),
+            total_to_receive: Number(
+              f.total_to_receive || 0
+            ),
+            total_musicians: Number(
+              f.total_musicians || 0
+            ),
+            total_other_expenses: Number(
+              f.total_other_expenses || 0
+            ),
+            net_result: Number(
+              f.net_result || 0
+            ),
+            rodrigo_amount: Number(
+              f.rodrigo_amount || 0
+            ),
+            marlon_amount: Number(
+              f.marlon_amount || 0
+            ),
+            group_cash_amount: Number(
+              f.group_cash_amount || 0
+            ),
+          })
+        )
+      );
 
       setEnsaios(
-        ensaiosData as Ensaio[]
+        (ensaiosRes.data || []) as Ensaio[]
+      );
+
+      setPresencas(
+        (presencasRes.data || []) as Presenca[]
       );
 
       setBonificacoes(
-        bonificacoesData.map(
-          (item: any) => ({
-            ...item,
-            total_amount: Number(
-              item.total_amount || 0
-            ),
-          })
-        )
+        (bonificacoesRes.data || []) as Bonificacao[]
       );
 
-      /*
-       * PRESENÇAS DOS ENSAIOS
-       */
-
-      const ensaioIds =
-        ensaiosData.map(
-          (item: any) => item.id
-        );
-
-      if (ensaioIds.length > 0) {
-        const {
-          data,
-          error,
-        } = await supabase
-          .from("rehearsal_attendance")
-          .select(
-            "id,rehearsal_id,musician_id,present"
-          )
-          .in(
-            "rehearsal_id",
-            ensaioIds
-          )
-          .eq("present", true);
-
-        if (error) {
-          throw error;
-        }
-
-        setPresencasEnsaio(
-          (data || []) as PresencaEnsaio[]
-        );
-      } else {
-        setPresencasEnsaio([]);
-      }
-
-      /*
-       * PREMIAÇÕES
-       */
-
-      const bonusIds =
-        bonificacoesData.map(
-          (item: any) => item.id
-        );
-
-      if (bonusIds.length > 0) {
-        const {
-          data,
-          error,
-        } = await supabase
-          .from("monthly_bonus_awards")
-          .select("*")
-          .in(
-            "bonus_id",
-            bonusIds
-          );
-
-        if (error) {
-          throw error;
-        }
-
-        setPremiosBonificacao(
-          (data || []).map(
-            (item: any) => ({
-              ...item,
-              individual_amount:
-                Number(
-                  item.individual_amount ||
-                    0
-                ),
-            })
-          )
-        );
-      } else {
-        setPremiosBonificacao([]);
-      }
+      setPremios(
+        (premiosRes.data || []) as Premio[]
+      );
     } catch (error: any) {
       console.error(error);
 
       setMensagem(
-        error.message ||
+        error?.message ||
           "Erro ao carregar relatório."
       );
     } finally {
@@ -628,17 +513,6 @@ setFechamentos(
     periodo.fim,
   ]);
 
-  useEffect(() => {
-    if (modo === "mes") {
-      setInicio(`${mes}-01`);
-      setFim(ultimoDiaDoMes(mes));
-    }
-  }, [mes, modo]);
-
-  /*
-   * EVENTOS
-   */
-
   const eventosRealizados = useMemo(
     () =>
       eventos.filter(
@@ -648,7 +522,7 @@ setFechamentos(
     [eventos]
   );
 
-  const eventosRealizadosIds =
+  const idsEventosRealizados =
     useMemo(
       () =>
         new Set(
@@ -660,108 +534,146 @@ setFechamentos(
     );
 
   /*
+   * ================================
    * RECEITAS
+   * ================================
+   *
+   * CONFIRMADO:
+   * valor total das receitas dos eventos realizados.
+   *
+   * RECEBIDO:
+   * dinheiro que efetivamente foi marcado como recebido
+   * na própria receita.
+   *
+   * IMPORTANTE:
+   * Não usamos event_revenue_receipts aqui.
+   * O relatório mensal mostra a situação financeira
+   * FINAL dos eventos realizados.
    */
 
-  const receitasDoPeriodo =
-    useMemo(
-      () =>
-        receitas.filter(
-          (receita) =>
-            eventosRealizadosIds.has(
-              receita.event_id
-            )
-        ),
-      [
-        receitas,
-        eventosRealizadosIds,
-      ]
-    );
-
-  // REGRA FINANCEIRA: para resultado, o valor do evento realizado é o valor final
-  // efetivamente fechado (actual_amount). O dinheiro que entrou no período é outra coisa
-  // e vem exclusivamente de event_revenue_receipts pela data do recebimento.
-  const valorFinalReceita = (r: Receita) =>
-    Number(r.expected_amount || 0);
-
-  const recebimentosDoPeriodo = useMemo(() => {
-    const ids = new Set(receitasDoPeriodo.map((r) => r.id));
-    return recebimentos.filter(
-      (r) =>
-        ids.has(r.event_revenue_id) &&
-        r.status === "recebido" &&
-        !!r.actual_receipt_date &&
-        r.actual_receipt_date >= periodo.inicio &&
-        r.actual_receipt_date <= periodo.fim
-    );
-  }, [recebimentos, receitasDoPeriodo, periodo.inicio, periodo.fim]);
-
-  const recebimentosAteFim = useMemo(() => {
-    const ids = new Set(receitasDoPeriodo.map((r) => r.id));
-    return recebimentos
-      .filter(
+  const receitasDoPeriodo = useMemo(
+    () =>
+      receitas.filter(
         (r) =>
-          ids.has(r.event_revenue_id) &&
-          r.status === "recebido" &&
-          !!r.actual_receipt_date &&
-          r.actual_receipt_date <= periodo.fim
-      )
-      .reduce((total, r) => total + Number(r.actual_amount || 0), 0);
-  }, [recebimentos, receitasDoPeriodo, periodo.fim]);
+          idsEventosRealizados.has(
+            r.event_id
+          ) &&
+          r.confirmed &&
+          r.status !== "cancelado"
+      ),
+    [
+      receitas,
+      idsEventosRealizados,
+    ]
+  );
 
   const totalConfirmado = useMemo(
     () =>
-      receitasDoPeriodo
-        .filter((r) => r.confirmed && r.status !== "cancelado")
-        .reduce((total, r) => total + valorFinalReceita(r), 0),
+      receitasDoPeriodo.reduce(
+        (total, r) =>
+          total +
+          Number(
+            r.expected_amount || 0
+          ),
+        0
+      ),
     [receitasDoPeriodo]
   );
 
+  /*
+   * Se a receita está recebida:
+   *
+   * - usa actual_amount quando existe;
+   * - se actual_amount estiver zerado,
+   *   considera o expected_amount.
+   *
+   * Isso corrige receitas que foram marcadas
+   * como recebidas na tela de eventos, mas ficaram
+   * com actual_amount antigo/zerado.
+   */
+  function valorRecebidoReceita(
+    receita: Receita
+  ) {
+    if (
+      receita.status !== "recebido"
+    ) {
+      return 0;
+    }
+
+    const atual = Number(
+      receita.actual_amount || 0
+    );
+
+    if (atual > 0) {
+      return atual;
+    }
+
+    return Number(
+      receita.expected_amount || 0
+    );
+  }
+
   const totalRecebido = useMemo(
     () =>
-      recebimentosDoPeriodo.reduce(
-        (total, r) => total + Number(r.actual_amount || 0),
+      receitasDoPeriodo.reduce(
+        (total, receita) =>
+          total +
+          valorRecebidoReceita(
+            receita
+          ),
         0
       ),
-    [recebimentosDoPeriodo]
+    [receitasDoPeriodo]
   );
 
-  const totalAReceber = Math.max(totalConfirmado - recebimentosAteFim, 0);
+  const totalAReceber = useMemo(
+    () =>
+      Math.max(
+        totalConfirmado -
+          totalRecebido,
+        0
+      ),
+    [
+      totalConfirmado,
+      totalRecebido,
+    ]
+  );
 
   /*
+   * ================================
    * MÚSICOS
+   * ================================
    */
 
   const musicosDoPeriodo =
     useMemo(
       () =>
-        musicosEvento.filter(
+        musicosEventos.filter(
           (item) =>
-            eventosRealizadosIds.has(
+            idsEventosRealizados.has(
               item.event_id
             )
         ),
       [
-        musicosEvento,
-        eventosRealizadosIds,
+        musicosEventos,
+        idsEventosRealizados,
       ]
     );
 
-  const totalMusicos =
-    useMemo(
-      () =>
-        musicosDoPeriodo.reduce(
-          (total, item) =>
-            total +
-            Number(
-              item.event_cache || 0
-            ),
-          0
-        ),
-      [musicosDoPeriodo]
-    );
+  const totalCaches = useMemo(
+    () =>
+      musicosDoPeriodo.reduce(
+        (total, item) =>
+          total +
+          Number(
+            item.event_cache || 0
+          ),
+        0
+      ),
+    [musicosDoPeriodo]
+  );
 
-  const totalMusicosPagos =
+  const totalCachesPagos =
     useMemo(
       () =>
         musicosDoPeriodo
@@ -781,521 +693,408 @@ setFechamentos(
       [musicosDoPeriodo]
     );
 
-  const totalMusicosPendentes =
+  const totalCachesPendentes =
     Math.max(
-      totalMusicos -
-        totalMusicosPagos,
+      totalCaches -
+        totalCachesPagos,
       0
     );
 
   /*
+   * ================================
    * DESPESAS
+   * ================================
    */
 
   const despesasDoPeriodo =
     useMemo(
       () =>
         despesas.filter(
-          (item) =>
-            eventosRealizadosIds.has(
-              item.event_id
+          (d) =>
+            idsEventosRealizados.has(
+              d.event_id
             )
         ),
       [
         despesas,
-        eventosRealizadosIds,
+        idsEventosRealizados,
       ]
     );
 
   const totalDespesas =
-    useMemo(
-      () =>
-        despesasDoPeriodo.reduce(
-          (total, item) =>
-            total +
-            Number(
-              item.amount || 0
-            ),
-          0
+    despesasDoPeriodo.reduce(
+      (total, despesa) =>
+        total +
+        Number(
+          despesa.amount || 0
         ),
-      [despesasDoPeriodo]
+      0
     );
 
   /*
+   * ================================
    * RESULTADO
+   * ================================
    */
 
   const resultadoLiquido =
     totalConfirmado -
-    totalMusicos -
+    totalCaches -
     totalDespesas;
 
   /*
-   * DISTRIBUIÇÃO
+   * A distribuição mostrada no relatório
+   * vem do resultado do período.
+   *
+   * Não somamos o Caixa como uma nova
+   * entrada financeira.
    */
 
-  const distribuicao = useMemo(() => {
-    // A distribuição do período é calculada pela mesma regra do fechamento:
-    // resultado = valor final dos eventos realizados - músicos - despesas.
-    // Não usa total_received nem actual receipts para dividir o lucro.
-    const rodrigo = resultadoLiquido > 0 ? resultadoLiquido / 4 : 0;
-    const marlon = resultadoLiquido > 0 ? resultadoLiquido / 4 : 0;
-    const grupo = resultadoLiquido > 0 ? resultadoLiquido / 2 : 0;
-    return { rodrigo, marlon, grupo, total: rodrigo + marlon + grupo };
-  }, [resultadoLiquido]);
+  const rodrigo =
+    resultadoLiquido / 4;
+
+  const marlon =
+    resultadoLiquido / 4;
+
+  const caixaGrupo =
+    resultadoLiquido / 2;
 
   /*
+   * ================================
+   * RESUMO POR RECEITA
+   * ================================
+   */
+
+  const resumoReceitas =
+    useMemo(() => {
+      const mapa = new Map<
+        string,
+        {
+          confirmado: number;
+          recebido: number;
+        }
+      >();
+
+      for (const receita of receitasDoPeriodo) {
+        const chave =
+          receita.description ||
+          "Receita";
+
+        if (!mapa.has(chave)) {
+          mapa.set(chave, {
+            confirmado: 0,
+            recebido: 0,
+          });
+        }
+
+        const linha =
+          mapa.get(chave)!;
+
+        linha.confirmado +=
+          Number(
+            receita.expected_amount ||
+              0
+          );
+
+        linha.recebido +=
+          valorRecebidoReceita(
+            receita
+          );
+      }
+
+      return mapa;
+    }, [receitasDoPeriodo]);
+
+  /*
+   * ================================
    * LINHAS DOS MÚSICOS
+   * ================================
    */
 
   const linhasMusicos =
     useMemo<LinhaMusico[]>(() => {
       const mapa = new Map<
         string,
-        {
-          datas: Set<string>;
-          eventos: number;
-          total: number;
-          pago: number;
-          pendente: number;
-          instrumentos: Set<string>;
-          ensaios: number;
-          bonusPago: number;
-          bonusPendente: number;
-          quantidadeBonus: number;
-        }
+        LinhaMusico
       >();
 
-      /*
-       * Inicializa todos os músicos
-       */
-
-      const musicosFixos = musicos.filter(musicoEhFixo);
-
-      for (const musico of musicosFixos) {
-        mapa.set(musico.id, {
-          datas: new Set(),
-          eventos: 0,
-          total: 0,
-          pago: 0,
-          pendente: 0,
-          instrumentos: new Set(),
-          ensaios: 0,
-          bonusPago: 0,
-          bonusPendente: 0,
-          quantidadeBonus: 0,
-        });
-      }
-
-      /*
-       * EVENTOS
-       */
-
-      for (const item of musicosDoPeriodo) {
-        const musico = musicos.find(
-          (m) => m.id === item.musician_id
-        );
-
-        if (!musicoEhFixo(musico)) {
-          continue;
-        }
-
-        const evento = eventos.find(
-          (e) =>
-            e.id === item.event_id
-        );
-
-        if (!evento) continue;
-
-        if (!mapa.has(item.musician_id)) {
-          mapa.set(
-            item.musician_id,
-            {
-              datas: new Set(),
-              eventos: 0,
-              total: 0,
-              pago: 0,
-              pendente: 0,
-              instrumentos: new Set(),
-              ensaios: 0,
-              bonusPago: 0,
-              bonusPendente: 0,
-              quantidadeBonus: 0,
-            }
+      for (const participacao of musicosDoPeriodo) {
+        const musico =
+          musicos.find(
+            (m) =>
+              m.id ===
+              participacao.musician_id
           );
+
+        if (!musico) continue;
+
+        if (!mapa.has(musico.id)) {
+          mapa.set(musico.id, {
+            id: musico.id,
+            nome: musico.name,
+            eventos: 0,
+            ensaios: 0,
+            participacoes: 0,
+            totalCache: 0,
+            cachePago: 0,
+            cachePendente: 0,
+            instrumentos: "",
+            bonusPago: 0,
+            bonusPendente: 0,
+            quantidadeBonus: 0,
+          });
         }
 
         const linha =
-          mapa.get(
-            item.musician_id
-          )!;
-
-        linha.datas.add(
-          evento.event_date
-        );
+          mapa.get(musico.id)!;
 
         linha.eventos += 1;
 
-        linha.total += Number(
-          item.event_cache || 0
-        );
+        linha.participacoes += 1;
+
+        linha.totalCache +=
+          Number(
+            participacao.event_cache ||
+              0
+          );
 
         if (
-          item.payment_status ===
+          participacao.payment_status ===
           "pago"
         ) {
-          linha.pago += Number(
-            item.event_cache || 0
-          );
+          linha.cachePago +=
+            Number(
+              participacao.event_cache ||
+                0
+            );
         } else {
-          linha.pendente += Number(
-            item.event_cache || 0
-          );
-        }
-
-        const relacoes =
-          instrumentosEvento.filter(
-            (relacao) =>
-              relacao.event_musician_id ===
-              item.id
-          );
-
-        for (const relacao of relacoes) {
-          const instrumento =
-            instrumentos.find(
-              (i) =>
-                i.id ===
-                relacao.instrument_id
+          linha.cachePendente +=
+            Number(
+              participacao.event_cache ||
+                0
             );
-
-          if (instrumento) {
-            linha.instrumentos.add(
-              instrumento.name
-            );
-          }
         }
       }
 
       /*
-       * ENSAIOS
+       * Ensaios
        */
 
-      for (const presenca of presencasEnsaio) {
-        if (!presenca.present) continue;
-
-        const musico = musicos.find(
-          (m) => m.id === presenca.musician_id
+      const ensaiosDoPeriodo =
+        ensaios.filter(
+          (ensaio) =>
+            ensaio.rehearsal_date >=
+              periodo.inicio &&
+            ensaio.rehearsal_date <=
+              periodo.fim
         );
 
-        if (!musicoEhFixo(musico)) {
+      for (const presenca of presencas) {
+        if (!presenca.present)
           continue;
-        }
 
-        if (!mapa.has(
-          presenca.musician_id
-        )) {
-          mapa.set(
-            presenca.musician_id,
-            {
-              datas: new Set(),
-              eventos: 0,
-              total: 0,
-              pago: 0,
-              pendente: 0,
-              instrumentos: new Set(),
-              ensaios: 0,
-              bonusPago: 0,
-              bonusPendente: 0,
-              quantidadeBonus: 0,
-            }
+        const ensaioExiste =
+          ensaiosDoPeriodo.some(
+            (ensaio) =>
+              ensaio.id ===
+              presenca.rehearsal_id
           );
-        }
+
+        if (!ensaioExiste)
+          continue;
 
         const linha =
           mapa.get(
             presenca.musician_id
-          )!;
+          );
+
+        if (!linha) continue;
 
         linha.ensaios += 1;
+        linha.participacoes += 1;
       }
 
       /*
-       * BONIFICAÇÕES
+       * Instrumentos
        */
 
-      for (const premio of premiosBonificacao) {
-        const musico = musicos.find(
-          (m) => m.id === premio.musician_id
-        );
-
-        if (!musicoEhFixo(musico)) {
-          continue;
-        }
-
-        if (!mapa.has(
-          premio.musician_id
-        )) {
-          mapa.set(
-            premio.musician_id,
-            {
-              datas: new Set(),
-              eventos: 0,
-              total: 0,
-              pago: 0,
-              pendente: 0,
-              instrumentos: new Set(),
-              ensaios: 0,
-              bonusPago: 0,
-              bonusPendente: 0,
-              quantidadeBonus: 0,
-            }
+      for (const linha of mapa.values()) {
+        const participacoesMusico =
+          musicosDoPeriodo.filter(
+            (p) =>
+              p.musician_id ===
+              linha.id
           );
+
+        const nomes = new Set<string>();
+
+        for (const p of participacoesMusico) {
+          const instrumentosDoEvento =
+            instrumentosEventos.filter(
+              (item) =>
+                item.event_musician_id ===
+                p.id
+            );
+
+          for (
+            const item of instrumentosDoEvento
+          ) {
+            const instrumento =
+              instrumentos.find(
+                (i) =>
+                  i.id ===
+                  item.instrument_id
+              );
+
+            if (instrumento) {
+              nomes.add(
+                instrumento.name
+              );
+            }
+          }
         }
 
+        linha.instrumentos =
+          Array.from(nomes).join(
+            ", "
+          );
+      }
+
+      /*
+       * Bônus
+       */
+
+      for (const premio of premios) {
         const linha =
           mapa.get(
             premio.musician_id
-          )!;
-
-        const bonus =
-          bonificacoes.find(
-            (item) =>
-              item.id ===
-              premio.bonus_id
           );
 
-        const valor = Number(
-          premio.individual_amount ||
-            0
-        );
+        if (!linha) continue;
 
-        if (bonus?.paid) {
-          linha.bonusPago += valor;
-          linha.quantidadeBonus += 1;
-        } else {
-          linha.bonusPendente += valor;
+        linha.quantidadeBonus += 1;
+
+        if (premio.individual_amount > 0) {
+          linha.bonusPago +=
+            Number(
+              premio.individual_amount ||
+                0
+            );
         }
       }
 
       return Array.from(
-        mapa.entries()
-      )
-        .map(
-          ([id, linha]) => ({
-            id,
-            nome:
-              musicos.find(
-                (musico) =>
-                  musico.id === id
-              )?.name ||
-              "Músico",
-            eventos:
-              linha.eventos,
-            ensaios:
-              linha.ensaios,
-            participacoes:
-              linha.eventos +
-              linha.ensaios,
-            datas:
-              linha.datas.size,
-            totalCache:
-              linha.total,
-            cachePago:
-              linha.pago,
-            cachePendente:
-              linha.pendente,
-            media:
-              linha.datas.size > 0
-                ? linha.total /
-                  linha.datas.size
-                : 0,
-            instrumentos:
-              Array.from(
-                linha.instrumentos
-              ).join(", ") || "-",
-            bonusPago:
-              linha.bonusPago,
-            bonusPendente:
-              linha.bonusPendente,
-            quantidadeBonus:
-              linha.quantidadeBonus,
-          })
-        )
-        .sort(
-          (a, b) =>
-            b.participacoes -
-              a.participacoes ||
-            b.totalCache -
-              a.totalCache ||
-            a.nome.localeCompare(
-              b.nome
-            )
-        );
+        mapa.values()
+      ).sort(
+        (a, b) =>
+          b.participacoes -
+          a.participacoes
+      );
     }, [
-      musicos,
       musicosDoPeriodo,
-      eventos,
-      instrumentosEvento,
+      musicos,
+      ensaios,
+      presencas,
+      periodo.inicio,
+      periodo.fim,
+      instrumentosEventos,
       instrumentos,
-      presencasEnsaio,
-      premiosBonificacao,
-      bonificacoes,
+      premios,
     ]);
 
-  /*
-   * TOTAIS DE BONIFICAÇÃO
-   */
-
-  const totalBonificacoesPagas =
-    useMemo(
-      () =>
-        premiosBonificacao
-          .filter((premio) => {
-            const bonus =
-              bonificacoes.find(
-                (item) =>
-                  item.id ===
-                  premio.bonus_id
-              );
-
-            return bonus?.paid;
-          })
-          .reduce(
-            (total, premio) =>
-              total +
-              Number(
-                premio.individual_amount ||
-                  0
-              ),
-            0
-          ),
-      [
-        premiosBonificacao,
-        bonificacoes,
-      ]
-    );
-
-  const totalBonificacoesPendentes =
-    useMemo(
-      () =>
-        premiosBonificacao
-          .filter((premio) => {
-            const bonus =
-              bonificacoes.find(
-                (item) =>
-                  item.id ===
-                  premio.bonus_id
-              );
-
-            return !bonus?.paid;
-          })
-          .reduce(
-            (total, premio) =>
-              total +
-              Number(
-                premio.individual_amount ||
-                  0
-              ),
-            0
-          ),
-      [
-        premiosBonificacao,
-        bonificacoes,
-      ]
-    );
-
-  const quantidadeBonificacoesPagas =
-    useMemo(
-      () =>
-        new Set(
-          premiosBonificacao
-            .filter((premio) => {
-              const bonus =
-                bonificacoes.find(
-                  (item) =>
-                    item.id ===
-                    premio.bonus_id
-                );
-
-              return bonus?.paid;
-            })
-            .map(
-              (premio) =>
-                `${premio.bonus_id}-${premio.musician_id}`
-            )
-        ).size,
-      [
-        premiosBonificacao,
-        bonificacoes,
-      ]
-    );
-
-  /*
-   * FREQUÊNCIA
-   */
-
   const maiorParticipacao =
-    linhasMusicos.length > 0
+    linhasMusicos.length
       ? Math.max(
           ...linhasMusicos.map(
-            (item) =>
-              item.participacoes
+            (m) =>
+              m.participacoes
           )
         )
       : 0;
 
-  const lideres =
-    linhasMusicos.filter(
-      (item) =>
-        item.participacoes ===
-          maiorParticipacao &&
-        maiorParticipacao > 0
+  /*
+   * ================================
+   * FECHAMENTOS DO PERÍODO
+   * ================================
+   */
+
+  const fechamentosDoPeriodo =
+    useMemo(
+      () =>
+        fechamentos.filter(
+          (f) =>
+            f.week_end >=
+              periodo.inicio &&
+            f.week_start <=
+              periodo.fim
+        ),
+      [
+        fechamentos,
+        periodo.inicio,
+        periodo.fim,
+      ]
     );
 
   /*
-   * RECEITAS AGRUPADAS
+   * ================================
+   * BONIFICAÇÕES
+   * ================================
    */
 
-  const resumoReceitas = useMemo(() => {
-    const recebidosPorReceita = new Map<string, number>();
+  const bonificacoesDoPeriodo =
+    useMemo(
+      () =>
+        bonificacoes.filter(
+          (b) => {
+            if (!b.reference_month)
+              return false;
 
-    for (const r of recebimentosDoPeriodo) {
-      recebidosPorReceita.set(
-        r.event_revenue_id,
-        (recebidosPorReceita.get(r.event_revenue_id) || 0) + Number(r.actual_amount || 0)
-      );
-    }
+            return (
+              b.reference_month >=
+                periodo.inicio.slice(
+                  0,
+                  7
+                ) &&
+              b.reference_month <=
+                periodo.fim.slice(
+                  0,
+                  7
+                )
+            );
+          }
+        ),
+      [
+        bonificacoes,
+        periodo.inicio,
+        periodo.fim,
+      ]
+    );
 
-    return receitasDoPeriodo
-      .filter((r) => r.confirmed && r.status !== "cancelado")
-      .reduce((mapa, receita) => {
-        if (!mapa.has(receita.description)) {
-          mapa.set(receita.description, { confirmado: 0, recebido: 0 });
-        }
-        const linha = mapa.get(receita.description)!;
-        linha.confirmado += valorFinalReceita(receita);
-        linha.recebido += recebidosPorReceita.get(receita.id) || 0;
-        return mapa;
-      }, new Map<string, { confirmado: number; recebido: number }>());
-  }, [receitasDoPeriodo, recebimentosDoPeriodo]);
-
-  const bonusMeses =
-    bonificacoes.length;
+  const totalBonificacoes =
+    premios.reduce(
+      (total, premio) =>
+        total +
+        Number(
+          premio.individual_amount ||
+            0
+        ),
+      0
+    );
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6 text-slate-800">
+    <main className="min-h-screen bg-slate-100 p-4 text-slate-800 sm:p-6">
       <div className="mx-auto max-w-7xl">
 
         {/* CABEÇALHO */}
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
 
           <div>
-            <p className="text-sm font-semibold text-slate-500">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
               VIROMANIA GESTÃO
             </p>
 
-            <h1 className="mt-1 text-3xl font-bold">
+            <h1 className="mt-1 text-3xl font-extrabold">
               Relatórios
             </h1>
 
@@ -1308,17 +1107,19 @@ setFechamentos(
           <div className="flex gap-2">
 
             <button
-              onClick={carregarDados}
-              className="rounded-lg bg-slate-800 px-5 py-3 text-sm font-semibold text-white"
+              onClick={
+                carregarDados
+              }
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white"
             >
-              Atualizar relatório
+              Atualizar
             </button>
 
             <a
               href="/"
-              className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold"
             >
-              Voltar
+              Voltar ao início
             </a>
 
           </div>
@@ -1327,12 +1128,12 @@ setFechamentos(
 
         {/* FILTRO */}
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
 
-          <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-wrap items-end gap-3">
 
             <div>
-              <label className="mb-1 block text-sm font-semibold">
+              <label className="mb-1 block text-xs font-bold">
                 Período
               </label>
 
@@ -1346,7 +1147,7 @@ setFechamentos(
                       | "personalizado"
                   )
                 }
-                className="rounded-lg border border-slate-300 px-3 py-3"
+                className="rounded-lg border px-3 py-2"
               >
                 <option value="mes">
                   Mês
@@ -1364,7 +1165,7 @@ setFechamentos(
 
             {modo === "mes" && (
               <div>
-                <label className="mb-1 block text-sm font-semibold">
+                <label className="mb-1 block text-xs font-bold">
                   Mês
                 </label>
 
@@ -1372,16 +1173,18 @@ setFechamentos(
                   type="month"
                   value={mes}
                   onChange={(e) =>
-                    setMes(e.target.value)
+                    setMes(
+                      e.target.value
+                    )
                   }
-                  className="rounded-lg border border-slate-300 px-3 py-3"
+                  className="rounded-lg border px-3 py-2"
                 />
               </div>
             )}
 
             {modo === "ano" && (
               <div>
-                <label className="mb-1 block text-sm font-semibold">
+                <label className="mb-1 block text-xs font-bold">
                   Ano
                 </label>
 
@@ -1389,9 +1192,13 @@ setFechamentos(
                   type="number"
                   value={ano}
                   onChange={(e) =>
-                    setAno(e.target.value)
+                    setAno(
+                      Number(
+                        e.target.value
+                      )
+                    )
                   }
-                  className="w-32 rounded-lg border border-slate-300 px-3 py-3"
+                  className="rounded-lg border px-3 py-2"
                 />
               </div>
             )}
@@ -1400,218 +1207,249 @@ setFechamentos(
               "personalizado" && (
               <>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold">
+                  <label className="mb-1 block text-xs font-bold">
                     Início
                   </label>
 
                   <input
                     type="date"
-                    value={inicio}
+                    value={
+                      inicioPersonalizado
+                    }
                     onChange={(e) =>
-                      setInicio(
+                      setInicioPersonalizado(
                         e.target.value
                       )
                     }
-                    className="rounded-lg border border-slate-300 px-3 py-3"
+                    className="rounded-lg border px-3 py-2"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-semibold">
+                  <label className="mb-1 block text-xs font-bold">
                     Fim
                   </label>
 
                   <input
                     type="date"
-                    value={fim}
+                    value={
+                      fimPersonalizado
+                    }
                     onChange={(e) =>
-                      setFim(
+                      setFimPersonalizado(
                         e.target.value
                       )
                     }
-                    className="rounded-lg border border-slate-300 px-3 py-3"
+                    className="rounded-lg border px-3 py-2"
                   />
                 </div>
               </>
             )}
 
-            <div className="pb-2 text-sm text-slate-500">
-              {dataBR(
-                periodo.inicio
-              )}{" "}
-              até{" "}
-              {dataBR(
-                periodo.fim
-              )}
-            </div>
+            <p className="pb-2 text-xs text-slate-500">
+              {dataBR(periodo.inicio)} até{" "}
+              {dataBR(periodo.fim)}
+            </p>
 
           </div>
 
         </section>
 
         {mensagem && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 font-semibold text-red-700">
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
             {mensagem}
           </div>
         )}
 
         {carregando ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
+          <div className="rounded-xl bg-white p-10 text-center shadow-sm">
             Carregando relatório...
           </div>
         ) : (
           <>
-            {/* RESUMO FINANCEIRO */}
+            {/* RESUMO */}
 
-            <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
 
-              <Card
-                titulo="Receitas confirmadas"
-                valor={moeda(
-                  totalConfirmado
-                )}
-              />
+              <div className="rounded-xl border bg-white p-4">
+                <p className="text-xs text-slate-500">
+                  Receitas confirmadas
+                </p>
 
-              <Card
-                titulo="Recebido"
-                valor={moeda(
-                  totalRecebido
-                )}
-              />
+                <p className="mt-1 text-xl font-extrabold">
+                  {moeda(
+                    totalConfirmado
+                  )}
+                </p>
+              </div>
 
-              <Card
-                titulo="A receber"
-                valor={moeda(
-                  totalAReceber
-                )}
-              />
+              <div className="rounded-xl border bg-white p-4">
+                <p className="text-xs text-slate-500">
+                  Recebido
+                </p>
 
-              <Card
-                titulo="Cachês"
-                valor={moeda(
-                  totalMusicos
-                )}
-              />
+                <p className="mt-1 text-xl font-extrabold">
+                  {moeda(
+                    totalRecebido
+                  )}
+                </p>
+              </div>
 
-              <Card
-                titulo="Resultado líquido"
-                valor={moeda(
-                  resultadoLiquido
-                )}
-                destaque
-              />
+              <div className="rounded-xl border bg-white p-4">
+                <p className="text-xs text-slate-500">
+                  A receber
+                </p>
+
+                <p className="mt-1 text-xl font-extrabold">
+                  {moeda(
+                    totalAReceber
+                  )}
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-white p-4">
+                <p className="text-xs text-slate-500">
+                  Cachês
+                </p>
+
+                <p className="mt-1 text-xl font-extrabold">
+                  {moeda(
+                    totalCaches
+                  )}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-slate-900 p-4 text-white">
+                <p className="text-xs text-slate-300">
+                  Resultado líquido
+                </p>
+
+                <p className="mt-1 text-xl font-extrabold">
+                  {moeda(
+                    resultadoLiquido
+                  )}
+                </p>
+              </div>
 
             </section>
 
-            {/* PAGAMENTOS */}
+            {/* SEGUNDO RESUMO */}
 
-            <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <section className="mb-5 grid gap-3 md:grid-cols-3">
 
-              <Card
-                titulo="Cachês pagos"
-                valor={moeda(
-                  totalMusicosPagos
-                )}
-              />
+              <div className="rounded-xl border bg-white p-4">
+                <p className="text-xs text-slate-500">
+                  Cachês pagos
+                </p>
 
-              <Card
-                titulo="Cachês pendentes"
-                valor={moeda(
-                  totalMusicosPendentes
-                )}
-              />
+                <p className="mt-1 text-xl font-bold text-emerald-700">
+                  {moeda(
+                    totalCachesPagos
+                  )}
+                </p>
+              </div>
 
-              <Card
-                titulo="Despesas dos eventos"
-                valor={moeda(
-                  totalDespesas
-                )}
-              />
+              <div className="rounded-xl border bg-white p-4">
+                <p className="text-xs text-slate-500">
+                  Cachês pendentes
+                </p>
+
+                <p className="mt-1 text-xl font-bold text-orange-600">
+                  {moeda(
+                    totalCachesPendentes
+                  )}
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-white p-4">
+                <p className="text-xs text-slate-500">
+                  Despesas dos eventos
+                </p>
+
+                <p className="mt-1 text-xl font-bold">
+                  {moeda(
+                    totalDespesas
+                  )}
+                </p>
+              </div>
 
             </section>
 
             {/* RECEITAS + DISTRIBUIÇÃO */}
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <section className="mb-5 grid gap-5 lg:grid-cols-2">
 
-              <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="overflow-hidden rounded-xl border bg-white">
 
-                <div className="border-b border-slate-200 p-5">
-
-                  <h2 className="text-xl font-bold">
+                <div className="border-b p-4">
+                  <h2 className="font-bold">
                     Receitas
                   </h2>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    Receitas confirmadas de
-                    eventos realizados.
+                  <p className="text-xs text-slate-500">
+                    Receitas confirmadas dos eventos realizados.
                   </p>
-
                 </div>
 
                 <div className="overflow-x-auto">
 
-                  <table className="w-full text-left text-sm">
+                  <table className="min-w-full text-sm">
 
-                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-
+                    <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                       <tr>
-                        <th className="px-5 py-3">
+                        <th className="px-4 py-3">
                           Receita
                         </th>
 
-                        <th className="px-5 py-3">
+                        <th className="px-4 py-3">
                           Confirmado
                         </th>
 
-                        <th className="px-5 py-3">
+                        <th className="px-4 py-3">
                           Recebido
                         </th>
 
-                        <th className="px-5 py-3">
+                        <th className="px-4 py-3">
                           Pendente
                         </th>
                       </tr>
-
                     </thead>
 
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y">
 
                       {Array.from(
                         resumoReceitas.entries()
                       ).map(
                         ([
                           nome,
-                          linha,
+                          valores,
                         ]) => (
                           <tr key={nome}>
-
-                            <td className="px-5 py-3 font-semibold">
+                            <td className="px-4 py-3 font-semibold">
                               {nome}
                             </td>
 
-                            <td className="px-5 py-3">
+                            <td className="px-4 py-3">
                               {moeda(
-                                linha.confirmado
+                                valores.confirmado
                               )}
                             </td>
 
-                            <td className="px-5 py-3 text-green-700">
+                            <td className="px-4 py-3 font-semibold text-emerald-600">
                               {moeda(
-                                linha.recebido
+                                valores.recebido
                               )}
                             </td>
 
-                            <td className="px-5 py-3 text-amber-700">
+                            <td className="px-4 py-3 font-semibold text-orange-600">
                               {moeda(
                                 Math.max(
-                                  linha.confirmado -
-                                    linha.recebido,
+                                  valores.confirmado -
+                                    valores.recebido,
                                   0
                                 )
                               )}
                             </td>
-
                           </tr>
                         )
                       )}
@@ -1622,104 +1460,94 @@ setFechamentos(
 
                 </div>
 
-              </section>
+              </div>
 
-              <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="rounded-xl border bg-white p-4">
 
-                <div className="border-b border-slate-200 p-5">
+                <h2 className="font-bold">
+                  Distribuição semanal
+                </h2>
 
-                  <h2 className="text-xl font-bold">
-                    Distribuição semanal
-                  </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Valores calculados sobre o resultado do período.
+                </p>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    Valores registrados nos
-                    fechamentos do período.
-                  </p>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+
+                  <div className="rounded-lg border p-4">
+                    <p className="text-xs text-slate-500">
+                      Rodrigo — 1/4
+                    </p>
+
+                    <p className="mt-1 text-lg font-bold">
+                      {moeda(rodrigo)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border p-4">
+                    <p className="text-xs text-slate-500">
+                      Marlon — 1/4
+                    </p>
+
+                    <p className="mt-1 text-lg font-bold">
+                      {moeda(marlon)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border p-4">
+                    <p className="text-xs text-slate-500">
+                      Caixa — 2/4
+                    </p>
+
+                    <p className="mt-1 text-lg font-bold">
+                      {moeda(caixaGrupo)}
+                    </p>
+                  </div>
 
                 </div>
 
-                <div className="grid gap-3 p-5 md:grid-cols-3">
-
-                  <Card
-                    titulo="Rodrigo — 1/4"
-                    valor={moeda(
-                      distribuicao.rodrigo
-                    )}
-                    pequeno
-                  />
-
-                  <Card
-                    titulo="Marlon — 1/4"
-                    valor={moeda(
-                      distribuicao.marlon
-                    )}
-                    pequeno
-                  />
-
-                  <Card
-                    titulo="Caixa — 2/4"
-                    valor={moeda(
-                      distribuicao.grupo
-                    )}
-                    pequeno
-                  />
-
+                <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm font-semibold">
+                  Total distribuído:{" "}
+                  {moeda(
+                    resultadoLiquido
+                  )}
                 </div>
 
-                <div className="mx-5 mb-5 rounded-lg bg-slate-50 p-4 text-sm">
-                  Total distribuído:
-                  <strong className="ml-1">
-                    {moeda(
-                      distribuicao.total
-                    )}
-                  </strong>
-                </div>
+              </div>
 
-              </section>
-
-            </div>
+            </section>
 
             {/* DESEMPENHO DOS MÚSICOS */}
 
-            <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <section className="mb-5 overflow-hidden rounded-xl border bg-white">
 
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
 
                 <div>
-
-                  <h2 className="text-xl font-bold">
+                  <h2 className="font-bold">
                     Desempenho dos músicos
                   </h2>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    Eventos, ensaios, cachês,
-                    pagamentos e bonificações.
+                  <p className="text-xs text-slate-500">
+                    Eventos, ensaios, cachês, pagamentos e bonificações.
                   </p>
-
                 </div>
 
-                <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                  Maior frequência:
-                  <strong className="ml-1">
-                    {maiorParticipacao}
-                    {" "}
-                    {maiorParticipacao === 1
-                      ? "participação"
-                      : "participações"}
-                  </strong>
-                </div>
+                <span className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                  Maior frequência:{" "}
+                  {maiorParticipacao}{" "}
+                  participações
+                </span>
 
               </div>
 
               <div className="overflow-x-auto">
 
-                <table className="w-full text-left text-sm">
+                <table className="min-w-full text-sm">
 
-                  <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
 
                     <tr>
-
                       <th className="px-4 py-3">
                         Músico
                       </th>
@@ -1755,114 +1583,71 @@ setFechamentos(
                       <th className="px-4 py-3">
                         Nº bônus
                       </th>
-
                     </tr>
 
                   </thead>
 
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y">
 
                     {linhasMusicos.map(
                       (linha) => (
-                        <tr
-                          key={linha.id}
-                        >
+                        <tr key={linha.id}>
 
-                          <td className="px-4 py-4 font-bold">
+                          <td className="px-4 py-3 font-semibold">
                             {linha.nome}
                           </td>
 
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3">
                             {linha.eventos}
                           </td>
 
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3">
                             {linha.ensaios}
                           </td>
 
-                          <td className="px-4 py-4">
-
-                            <span className="rounded-full bg-slate-100 px-3 py-1 font-bold">
+                          <td className="px-4 py-3">
+                            <span className="rounded-full bg-slate-100 px-2 py-1 font-bold">
                               {
                                 linha.participacoes
                               }
                             </span>
-
                           </td>
 
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-3">
                             {moeda(
                               linha.totalCache
                             )}
                           </td>
 
-                          <td className="px-4 py-4 text-green-700">
+                          <td className="px-4 py-3 font-semibold text-emerald-600">
                             {moeda(
                               linha.cachePago
                             )}
                           </td>
 
-                          <td className="px-4 py-4 text-amber-700">
+                          <td className="px-4 py-3 font-semibold text-orange-600">
                             {moeda(
                               linha.cachePendente
                             )}
                           </td>
 
-                          <td className="px-4 py-4">
-
+                          <td className="px-4 py-3">
                             {linha.bonusPago >
-                            0 ? (
-                              <div>
-                                <strong className="text-green-700">
-                                  {moeda(
-                                    linha.bonusPago
-                                  )}
-                                </strong>
-
-                                {linha.bonusPendente >
-                                  0 && (
-                                  <div className="text-xs text-amber-600">
-                                    +
-                                    {moeda(
-                                      linha.bonusPendente
-                                    )}{" "}
-                                    pendente
-                                  </div>
-                                )}
-                              </div>
-                            ) : linha.bonusPendente >
-                              0 ? (
-                              <span className="text-amber-600">
-                                {moeda(
-                                  linha.bonusPendente
-                                )}{" "}
-                                pendente
-                              </span>
-                            ) : (
-                              "-"
-                            )}
-
+                            0
+                              ? moeda(
+                                  linha.bonusPago
+                                )
+                              : "-"}
                           </td>
 
-                          <td className="px-4 py-4">
-                            {linha.quantidadeBonus}
+                          <td className="px-4 py-3">
+                            {
+                              linha.quantidadeBonus
+                            }
                           </td>
 
                         </tr>
                       )
-                    )}
-
-                    {linhasMusicos.length ===
-                      0 && (
-                      <tr>
-                        <td
-                          colSpan={9}
-                          className="px-5 py-10 text-center text-slate-500"
-                        >
-                          Nenhum músico encontrado
-                          no período.
-                        </td>
-                      </tr>
                     )}
 
                   </tbody>
@@ -1873,72 +1658,83 @@ setFechamentos(
 
             </section>
 
-            {/* DETALHE POR MÚSICO */}
+            {/* RESUMO INDIVIDUAL */}
 
-            <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <section className="mb-5">
 
-              <div className="border-b border-slate-200 p-5">
-
-                <h2 className="text-xl font-bold">
+              <div className="mb-3">
+                <h2 className="font-bold">
                   Resumo individual
                 </h2>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  Informações detalhadas de
-                  frequência e instrumentos.
+                <p className="text-xs text-slate-500">
+                  Informações detalhadas de frequência e instrumentos.
                 </p>
-
               </div>
 
-              <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 
                 {linhasMusicos.map(
                   (linha) => (
                     <div
                       key={linha.id}
-                      className="rounded-xl border border-slate-200 p-5"
+                      className="rounded-xl border bg-white p-4"
                     >
 
-                      <h3 className="text-lg font-bold">
+                      <h3 className="font-bold">
                         {linha.nome}
                       </h3>
 
-                      <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="mt-3 grid grid-cols-2 gap-2">
 
-                        <MiniInfo
-                          titulo="Eventos"
-                          valor={String(
-                            linha.eventos
-                          )}
-                        />
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-500">
+                            Eventos
+                          </p>
 
-                        <MiniInfo
-                          titulo="Ensaios"
-                          valor={String(
-                            linha.ensaios
-                          )}
-                        />
+                          <p className="font-bold">
+                            {linha.eventos}
+                          </p>
+                        </div>
 
-                        <MiniInfo
-                          titulo="Participações"
-                          valor={String(
-                            linha.participacoes
-                          )}
-                        />
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-500">
+                            Ensaios
+                          </p>
 
-                        <MiniInfo
-                          titulo="Datas"
-                          valor={String(
-                            linha.datas
-                          )}
-                        />
+                          <p className="font-bold">
+                            {linha.ensaios}
+                          </p>
+                        </div>
+
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-500">
+                            Participações
+                          </p>
+
+                          <p className="font-bold">
+                            {
+                              linha.participacoes
+                            }
+                          </p>
+                        </div>
+
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-500">
+                            Bônus
+                          </p>
+
+                          <p className="font-bold">
+                            {linha.quantidadeBonus}
+                          </p>
+                        </div>
 
                       </div>
 
-                      <div className="mt-4 space-y-2 text-sm">
+                      <div className="mt-3 space-y-1 text-xs">
 
                         <div className="flex justify-between">
-                          <span className="text-slate-500">
+                          <span>
                             Total de cachês
                           </span>
 
@@ -1950,54 +1746,53 @@ setFechamentos(
                         </div>
 
                         <div className="flex justify-between">
-                          <span className="text-slate-500">
-                            Média por data
+                          <span>
+                            Cachês pagos
                           </span>
 
-                          <strong>
+                          <strong className="text-emerald-600">
                             {moeda(
-                              linha.media
+                              linha.cachePago
                             )}
                           </strong>
                         </div>
 
                         <div className="flex justify-between">
-                          <span className="text-slate-500">
+                          <span>
+                            Cachês pendentes
+                          </span>
+
+                          <strong className="text-orange-600">
+                            {moeda(
+                              linha.cachePendente
+                            )}
+                          </strong>
+                        </div>
+
+                        <div className="flex justify-between">
+                          <span>
                             Bônus recebidos
                           </span>
 
-                          <strong className="text-green-700">
+                          <strong className="text-emerald-600">
                             {moeda(
                               linha.bonusPago
                             )}
                           </strong>
                         </div>
 
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">
-                            Quantidade de bônus
-                          </span>
-
-                          <strong>
-                            {
-                              linha.quantidadeBonus
-                            }
-                          </strong>
-                        </div>
-
                       </div>
 
-                      <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                      <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs">
 
-                        <strong>
+                        <p className="font-semibold">
                           Instrumentos:
-                        </strong>
+                        </p>
 
-                        <div className="mt-1">
-                          {
-                            linha.instrumentos
-                          }
-                        </div>
+                        <p className="mt-1 text-slate-600">
+                          {linha.instrumentos ||
+                            "-"}
+                        </p>
 
                       </div>
 
@@ -2009,582 +1804,163 @@ setFechamentos(
 
             </section>
 
-            {/* BONIFICAÇÕES */}
+            {/* FECHAMENTOS */}
 
-            <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <section className="mb-5 rounded-xl border bg-white p-4">
 
-              <div className="border-b border-slate-200 p-5">
-
-                <div className="flex flex-wrap items-center justify-between gap-4">
-
-                  <div>
-
-                    <h2 className="text-xl font-bold">
-                      Histórico de bonificações
-                    </h2>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      Bonificações mensais e situação
-                      de pagamento.
-                    </p>
-
-                  </div>
-
-                  <div className="flex gap-3">
-
-                    <div className="rounded-lg bg-green-50 px-4 py-3">
-                      <p className="text-xs text-green-700">
-                        Pagas
-                      </p>
-
-                      <strong className="text-green-800">
-                        {moeda(
-                          totalBonificacoesPagas
-                        )}
-                      </strong>
-                    </div>
-
-                    <div className="rounded-lg bg-amber-50 px-4 py-3">
-                      <p className="text-xs text-amber-700">
-                        Pendentes
-                      </p>
-
-                      <strong className="text-amber-800">
-                        {moeda(
-                          totalBonificacoesPendentes
-                        )}
-                      </strong>
-                    </div>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              {bonificacoes.length ===
-              0 ? (
-                <div className="p-10 text-center text-slate-500">
-                  Nenhuma bonificação registrada
-                  neste período.
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-
-                  {bonificacoes.map(
-                    (bonus) => {
-
-                      const premios =
-                        premiosBonificacao.filter(
-                          (premio) =>
-                            premio.bonus_id ===
-                            bonus.id
-                        );
-
-                      return (
-                        <div
-                          key={bonus.id}
-                          className="p-5"
-                        >
-
-                          <div className="flex flex-wrap items-center justify-between gap-4">
-
-                            <div>
-
-                              <h3 className="font-bold capitalize">
-                                {nomeMes(
-                                  bonus.reference_month.slice(
-                                    0,
-                                    7
-                                  )
-                                )}
-                              </h3>
-
-                              <p className="mt-1 text-sm text-slate-500">
-                                Total:{" "}
-                                <strong>
-                                  {moeda(
-                                    bonus.total_amount
-                                  )}
-                                </strong>
-                              </p>
-
-                            </div>
-
-                            <div>
-
-                              {bonus.paid ? (
-                                <span className="rounded-full bg-green-100 px-3 py-2 text-xs font-bold text-green-700">
-                                  ✓ Pago em{" "}
-                                  {dataBR(
-                                    bonus.payment_date
-                                  )}
-                                </span>
-                              ) : (
-                                <span className="rounded-full bg-amber-100 px-3 py-2 text-xs font-bold text-amber-700">
-                                  Pendente
-                                </span>
-                              )}
-
-                            </div>
-
-                          </div>
-
-                          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-
-                            {premios.map(
-                              (premio) => {
-
-                                const musico =
-                                  musicos.find(
-                                    (item) =>
-                                      item.id ===
-                                      premio.musician_id
-                                  );
-
-                                return (
-                                  <div
-                                    key={
-                                      premio.id
-                                    }
-                                    className="rounded-lg border border-slate-200 p-4"
-                                  >
-
-                                    <div className="flex justify-between gap-3">
-
-                                      <div>
-
-                                        <p className="font-bold">
-                                          {
-                                            musico?.name ||
-                                            "Músico"
-                                          }
-                                        </p>
-
-                                        <p className="mt-1 text-xs text-slate-500">
-                                          {
-                                            premio.events_count
-                                          }{" "}
-                                          eventos +{" "}
-                                          {
-                                            premio.rehearsals_count
-                                          }{" "}
-                                          ensaios ={" "}
-                                          {
-                                            premio.total_participations
-                                          }{" "}
-                                          participações
-                                        </p>
-
-                                      </div>
-
-                                      <strong className="text-green-700">
-                                        {moeda(
-                                          premio.individual_amount
-                                        )}
-                                      </strong>
-
-                                    </div>
-
-                                  </div>
-                                );
-                              }
-                            )}
-
-                          </div>
-
-                        </div>
-                      );
-                    }
-                  )}
-
-                </div>
-              )}
-
-            </section>
-
-            {/* ENSAIOS */}
-
-            <section className="mt-6 rounded-xl border border-purple-200 bg-white shadow-sm">
-
-              <div className="border-b border-purple-100 bg-purple-50 p-5">
-
-                <h2 className="text-xl font-bold">
-                  Ensaios do período
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-600">
-                  Ensaios contam para a frequência,
-                  mas não geram cachê.
-                </p>
-
-              </div>
-
-              <div className="p-5">
-
-                <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-
-                  <MiniCard
-                    titulo="Ensaios realizados"
-                    valor={String(
-                      ensaios.length
-                    )}
-                  />
-
-                  <MiniCard
-                    titulo="Presenças registradas"
-                    valor={String(
-                      presencasEnsaio.length
-                    )}
-                  />
-
-                  <MiniCard
-                    titulo="Meses com bonificação"
-                    valor={String(
-                      bonusMeses
-                    )}
-                  />
-
-                </div>
-
-                {ensaios.length ===
-                0 ? (
-                  <p className="text-sm text-slate-500">
-                    Nenhum ensaio registrado
-                    neste período.
-                  </p>
-                ) : (
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-
-                    {ensaios.map(
-                      (ensaio) => {
-
-                        const presentes =
-                          presencasEnsaio.filter(
-                            (item) =>
-                              item.rehearsal_id ===
-                                ensaio.id &&
-                              item.present
-                          ).length;
-
-                        return (
-                          <div
-                            key={ensaio.id}
-                            className="rounded-lg border border-slate-200 p-4"
-                          >
-
-                            <p className="font-bold">
-                              {dataBR(
-                                ensaio.rehearsal_date
-                              )}
-                            </p>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                              {presentes}{" "}
-                              presentes
-                            </p>
-
-                          </div>
-                        );
-                      }
-                    )}
-
-                  </div>
-                )}
-
-              </div>
-
-            </section>
-
-            {/* EVENTOS */}
-
-            <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
-
-              <div className="border-b border-slate-200 p-5">
-
-                <h2 className="text-xl font-bold">
-                  Eventos realizados
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-500">
-                  {eventosRealizados.length}{" "}
-                  {eventosRealizados.length ===
-                  1
-                    ? "evento realizado"
-                    : "eventos realizados"}{" "}
-                  no período.
-                </p>
-
-              </div>
-
-              <div className="divide-y divide-slate-100">
-
-                {eventosRealizados.map(
-                  (evento) => {
-
-                    const receitaEvento =
-                      receitasDoPeriodo
-                        .filter(
-                          (receita) =>
-                            receita.event_id ===
-                            evento.id
-                        )
-                        .reduce(
-                          (total, receita) =>
-                            total +
-                            Number(
-                              receita.expected_amount ||
-                                0
-                            ),
-                          0
-                        );
-
-                    const musicosEventoLocal =
-                      musicosDoPeriodo
-                        .filter(
-                          (item) =>
-                            item.event_id ===
-                            evento.id
-                        )
-                        .reduce(
-                          (total, item) =>
-                            total +
-                            Number(
-                              item.event_cache ||
-                                0
-                            ),
-                          0
-                        );
-
-                    const despesasEvento =
-                      despesasDoPeriodo
-                        .filter(
-                          (item) =>
-                            item.event_id ===
-                            evento.id
-                        )
-                        .reduce(
-                          (total, item) =>
-                            total +
-                            Number(
-                              item.amount ||
-                                0
-                            ),
-                          0
-                        );
-
-                    const resultado =
-                      receitaEvento -
-                      musicosEventoLocal -
-                      despesasEvento;
-
-                    return (
-                      <div
-                        key={evento.id}
-                        className="p-5"
-                      >
-
-                        <div className="flex flex-wrap items-center justify-between gap-4">
-
-                          <div>
-
-                            <h3 className="font-bold">
-                              {evento.name}
-                            </h3>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                              {dataBR(
-                                evento.event_date
-                              )}
-                            </p>
-
-                          </div>
-
-                          <div className="text-right">
-
-                            <p className="text-xs text-slate-500">
-                              Resultado do evento
-                            </p>
-
-                            <strong
-                              className={
-                                resultado >=
-                                0
-                                  ? "text-green-700"
-                                  : "text-red-700"
-                              }
-                            >
-                              {moeda(
-                                resultado
-                              )}
-                            </strong>
-
-                          </div>
-
-                        </div>
-
-                        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-
-                          <MiniInfo
-                            titulo="Receitas"
-                            valor={moeda(
-                              receitaEvento
-                            )}
-                          />
-
-                          <MiniInfo
-                            titulo="Músicos"
-                            valor={moeda(
-                              musicosEventoLocal
-                            )}
-                          />
-
-                          <MiniInfo
-                            titulo="Despesas"
-                            valor={moeda(
-                              despesasEvento
-                            )}
-                          />
-
-                        </div>
-
-                      </div>
-                    );
-                  }
-                )}
-
-              </div>
-
-            </section>
-
-            {/* OBSERVAÇÃO FINANCEIRA */}
-
-            <section className="mt-6 mb-10 rounded-xl border border-blue-200 bg-blue-50 p-5">
-
-              <h2 className="font-bold text-blue-900">
-                Regra financeira do sistema
+              <h2 className="font-bold">
+                Fechamentos do período
               </h2>
 
-              <div className="mt-3 space-y-1 text-sm text-blue-800">
+              <div className="mt-3 overflow-x-auto">
 
-                <p>
-                  O resultado semanal considera
-                  receitas confirmadas dos eventos,
-                  cachês dos músicos e despesas dos
-                  eventos.
-                </p>
+                <table className="min-w-full text-sm">
 
-                <p>
-                  Rodrigo recebe 1/4, Marlon 1/4 e
-                  o Caixa do Grupo fica com 2/4.
-                </p>
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">
+                        Semana
+                      </th>
 
-                <p>
-                  Valores ainda não recebidos
-                  continuam como contas a receber,
-                  mas não alteram o resultado já
-                  confirmado.
-                </p>
+                      <th className="px-4 py-3">
+                        Resultado
+                      </th>
 
-                <p>
-                  Bonificações mensais são despesas
-                  separadas do Caixa do Grupo e não
-                  alteram nenhum resultado semanal.
-                </p>
+                      <th className="px-4 py-3">
+                        Rodrigo
+                      </th>
 
-                <p>
-                  Ensaios servem para frequência da
-                  bonificação e não geram cachê.
-                </p>
+                      <th className="px-4 py-3">
+                        Marlon
+                      </th>
+
+                      <th className="px-4 py-3">
+                        Caixa
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y">
+
+                    {fechamentosDoPeriodo.map(
+                      (f) => (
+                        <tr
+                          key={f.id}
+                        >
+
+                          <td className="px-4 py-3">
+                            {dataBR(
+                              f.week_start
+                            )}{" "}
+                            até{" "}
+                            {dataBR(
+                              f.week_end
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 font-bold">
+                            {moeda(
+                              f.net_result
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            {moeda(
+                              f.rodrigo_amount
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            {moeda(
+                              f.marlon_amount
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            {moeda(
+                              f.group_cash_amount
+                            )}
+                          </td>
+
+                        </tr>
+                      )
+                    )}
+
+                  </tbody>
+
+                </table>
 
               </div>
+
+            </section>
+
+            {/* RODAPÉ FINANCEIRO */}
+
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+
+              <div className="grid gap-4 md:grid-cols-4">
+
+                <div>
+                  <p className="text-xs text-slate-500">
+                    Eventos realizados
+                  </p>
+
+                  <p className="text-2xl font-bold">
+                    {
+                      eventosRealizados.length
+                    }
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-slate-500">
+                    Receita confirmada
+                  </p>
+
+                  <p className="text-2xl font-bold">
+                    {moeda(
+                      totalConfirmado
+                    )}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-slate-500">
+                    Resultado líquido
+                  </p>
+
+                  <p className="text-2xl font-bold">
+                    {moeda(
+                      resultadoLiquido
+                    )}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-slate-500">
+                    Bonificações
+                  </p>
+
+                  <p className="text-2xl font-bold">
+                    {moeda(
+                      totalBonificacoes
+                    )}
+                  </p>
+                </div>
+
+              </div>
+
+              <p className="mt-5 border-t pt-4 text-xs text-slate-500">
+                O resultado acima não inclui bonificação mensal.
+                A bonificação é uma despesa separada do caixa do grupo
+                no final do mês.
+              </p>
 
             </section>
           </>
         )}
+
       </div>
     </main>
-  );
-}
-
-function Card({
-  titulo,
-  valor,
-  destaque = false,
-  pequeno = false,
-}: {
-  titulo: string;
-  valor: string;
-  destaque?: boolean;
-  pequeno?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-xl border p-5 ${
-        destaque
-          ? "border-slate-800 bg-slate-800 text-white"
-          : "border-slate-200 bg-white text-slate-800"
-      }`}
-    >
-      <p
-        className={`text-sm ${
-          destaque
-            ? "text-slate-300"
-            : "text-slate-500"
-        }`}
-      >
-        {titulo}
-      </p>
-
-      <strong
-        className={`mt-1 block ${
-          pequeno
-            ? "text-xl"
-            : "text-2xl"
-        }`}
-      >
-        {valor}
-      </strong>
-    </div>
-  );
-}
-
-function MiniInfo({
-  titulo,
-  valor,
-}: {
-  titulo: string;
-  valor: string;
-}) {
-  return (
-    <div className="rounded-lg bg-slate-50 p-3">
-      <p className="text-xs text-slate-500">
-        {titulo}
-      </p>
-
-      <p className="mt-1 font-bold">
-        {valor}
-      </p>
-    </div>
-  );
-}
-
-function MiniCard({
-  titulo,
-  valor,
-}: {
-  titulo: string;
-  valor: string;
-}) {
-  return (
-    <div className="rounded-lg border border-slate-200 p-4">
-      <p className="text-sm text-slate-500">
-        {titulo}
-      </p>
-
-      <p className="mt-1 text-2xl font-bold">
-        {valor}
-      </p>
-    </div>
   );
 }
