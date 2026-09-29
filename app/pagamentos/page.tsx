@@ -38,7 +38,6 @@ type Fechamento = {
 
 type Recebimento = {
   event_revenue_id: string;
-  event_id: string | null;
   description: string;
   actual_amount: number;
   actual_receipt_date: string | null;
@@ -133,7 +132,6 @@ export default function PagamentosPage() {
   );
 
   const [participacoes, setParticipacoes] = useState<Participacao[]>([]);
-  const [eventosDaSemana, setEventosDaSemana] = useState<Evento[]>([]);
   const [fechamento, setFechamento] = useState<Fechamento | null>(null);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   const [sinaisDetalhes, setSinaisDetalhes] = useState<SinalDetalhe[]>([]);
@@ -227,8 +225,6 @@ export default function PagamentosPage() {
         (evento) => evento.status === "realizado"
       );
 
-      setEventosDaSemana(eventosRealizados);
-
       const idsEventos = eventosRealizados.map((evento) => evento.id);
 
       let participacoesData: any[] = [];
@@ -278,19 +274,10 @@ export default function PagamentosPage() {
           : null
       );
 
-      const mapaReceitas = new Map<string, { event_id: string; description: string }>();
-      for (const receita of receitasRes.data || []) {
-        mapaReceitas.set(String(receita.id), {
-          event_id: String(receita.event_id),
-          description: String(receita.description || ""),
-        });
-      }
-
       setRecebimentos(
         (recebimentosRes.data || []).map(
           (r: any): Recebimento => ({
             event_revenue_id: String(r.event_revenue_id),
-            event_id: mapaReceitas.get(String(r.event_revenue_id))?.event_id || null,
             description: String(r.description || ""),
             actual_amount: Number(r.actual_amount || 0),
             actual_receipt_date: r.actual_receipt_date || null,
@@ -298,6 +285,14 @@ export default function PagamentosPage() {
           })
         )
       );
+
+      const mapaReceitas = new Map<string, { event_id: string; description: string }>();
+      for (const receita of receitasRes.data || []) {
+        mapaReceitas.set(String(receita.id), {
+          event_id: String(receita.event_id),
+          description: String(receita.description || ""),
+        });
+      }
 
       const mapaEventos = new Map<string, string>();
       for (const evento of eventosRes.data || []) {
@@ -423,51 +418,10 @@ export default function PagamentosPage() {
     [pagamentosMusicos]
   );
 
-  // REGRA DEFINITIVA:
-  // O card "Valor que entrou no caixa na semana" considera somente
-  // recebimentos dos eventos cuja DATA DO EVENTO pertence à semana selecionada.
-  //
-  // Sinais de eventos futuros ficam fora deste cálculo, mesmo que tenham
-  // sido recebidos durante a semana. Eles entram no caixa, mas só serão
-  // considerados no fechamento da semana em que o evento acontecer.
-  //
-  // Também excluímos qualquer recebimento descrito como "Sinal" dos
-  // eventos da própria semana, porque o sinal já foi recebido anteriormente
-  // e o que entra nesta semana é somente o saldo restante.
-  const valorRecebidoEventosSemana = useMemo(() => {
-    const idsEventosSemana = new Set(
-      eventosDaSemana.map((evento) => String(evento.id))
-    );
+  const valorRecebidoEventosSemana = Number(
+    fechamento?.total_received || 0
+  );
 
-    return recebimentos.reduce((total, recebimento) => {
-      const descricao = String(recebimento.description || "")
-        .trim()
-        .toLowerCase();
-
-      const dataRecebimento = recebimento.actual_receipt_date || "";
-      const pertenceAosEventosDaSemana = idsEventosSemana.has(
-        String(recebimento.event_id || "")
-      );
-      const recebidoNestaSemana =
-        dataRecebimento >= semanaInicio && dataRecebimento <= semanaFim;
-      const ehSinal =
-        descricao === "sinal" || descricao.startsWith("sinal ");
-
-      if (
-        recebimento.status !== "recebido" ||
-        !recebimento.actual_receipt_date ||
-        !pertenceAosEventosDaSemana ||
-        !recebidoNestaSemana ||
-        ehSinal
-      ) {
-        return total;
-      }
-
-      return total + Number(recebimento.actual_amount || 0);
-    }, 0);
-  }, [recebimentos, eventosDaSemana, semanaInicio, semanaFim]);
-
-  // Mantido apenas para exibir no diagnóstico temporário abaixo.
   const valorSinaisSemana = useMemo(
     () =>
       sinaisDetalhes.reduce(
@@ -477,9 +431,12 @@ export default function PagamentosPage() {
     [sinaisDetalhes]
   );
 
-  // Nesta tela, o valor do card já é o valor novo efetivamente recebido
-  // pelos eventos da semana. Não subtraímos sinais novamente.
-  const entrouNaSemana = valorRecebidoEventosSemana;
+  // REGRA DEFINIDA:
+  // valor que entrou novo no caixa = eventos recebidos - sinais.
+  const entrouNaSemana = Math.max(
+    valorRecebidoEventosSemana - valorSinaisSemana,
+    0
+  );
 
   // REGRA DEFINIDA:
   // caixa = valor que já estava no caixa
@@ -717,8 +674,53 @@ export default function PagamentosPage() {
               {moeda(entrouNaSemana)}
             </p>
             <p className="mt-1 text-xs text-emerald-700">
-              Recebimentos dos eventos desta semana. Sinais de eventos futuros não entram aqui.
+              Eventos recebidos: {moeda(valorRecebidoEventosSemana)} • Sinais:{" "}
+              {moeda(valorSinaisSemana)}
             </p>
+          </div>
+
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-5">
+            <h2 className="text-base font-extrabold text-amber-900">
+              🔎 Diagnóstico dos sinais encontrados nesta semana
+            </h2>
+            <p className="mt-1 text-sm text-amber-800">
+              Esta lista é temporária. Ela mostra exatamente quais registros a página está somando como “Sinal”.
+            </p>
+            {sinaisDetalhes.length === 0 ? (
+              <p className="mt-3 text-sm font-semibold text-amber-900">
+                Nenhum sinal encontrado entre {dataBR(semanaInicio)} e {dataBR(semanaFim)}.
+              </p>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-amber-200 text-amber-900">
+                      <th className="px-2 py-2">Evento</th>
+                      <th className="px-2 py-2">Descrição</th>
+                      <th className="px-2 py-2">Data</th>
+                      <th className="px-2 py-2 text-right">Valor</th>
+                      <th className="px-2 py-2">ID da receita</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sinaisDetalhes.map((sinal, index) => (
+                      <tr key={`${sinal.event_revenue_id}-${index}`} className="border-b border-amber-100 last:border-0">
+                        <td className="px-2 py-2 font-semibold">{sinal.evento}</td>
+                        <td className="px-2 py-2">{sinal.descricao}</td>
+                        <td className="px-2 py-2">{dataBR(sinal.data)}</td>
+                        <td className="px-2 py-2 text-right font-bold">{moeda(sinal.valor)}</td>
+                        <td className="px-2 py-2 text-xs text-slate-500">{sinal.event_revenue_id}</td>
+                      </tr>
+                    ))}
+                    <tr className="font-extrabold text-amber-950">
+                      <td className="px-2 py-3" colSpan={3}>Total dos sinais encontrados</td>
+                      <td className="px-2 py-3 text-right">{moeda(valorSinaisSemana)}</td>
+                      <td />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
