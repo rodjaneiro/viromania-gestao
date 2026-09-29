@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 type Musician = {
   id: string;
   name: string;
+  type: string;
   active: boolean;
 };
 
@@ -36,6 +37,28 @@ type BonusAward = {
   total_participations: number;
   individual_amount: number;
 };
+
+
+function musicoEhFixo(musico: Musician | undefined) {
+  const tipo = String(musico?.type || "")
+    .trim()
+    .toLowerCase();
+
+  const nome = String(musico?.name || "")
+    .trim()
+    .toLowerCase();
+
+  const nomesFreelancers = new Set([
+    "joão vitor",
+    "ronaldo",
+    "wiglis",
+  ]);
+
+  return (
+    tipo === "fixo" &&
+    !nomesFreelancers.has(nome)
+  );
+}
 
 function moeda(valor: number) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -125,7 +148,7 @@ export default function BonificacoesPage() {
   async function carregarMusicos() {
     const { data, error } = await supabase
       .from("musicians")
-      .select("id, name, active")
+      .select("id, name, type, active")
       .eq("active", true)
       .order("name");
 
@@ -163,7 +186,15 @@ export default function BonificacoesPage() {
 
       if (awardsError) throw awardsError;
 
-      setPremiacoes(awards || []);
+      const premiacoesFixas = (awards || []).filter((premio) =>
+        musicoEhFixo(
+          musicos.find(
+            (musico) => musico.id === premio.musician_id
+          )
+        )
+      );
+
+      setPremiacoes(premiacoesFixas);
     } else {
       setValorBonificacao("");
       setObservacao("");
@@ -217,6 +248,14 @@ export default function BonificacoesPage() {
         if (error) throw error;
 
         for (const participante of participantes || []) {
+          const musico = musicos.find(
+            (item) => item.id === participante.musician_id
+          );
+
+          if (!musicoEhFixo(musico)) {
+            continue;
+          }
+
           contagemEventos[participante.musician_id] =
             (contagemEventos[
               participante.musician_id
@@ -259,6 +298,14 @@ export default function BonificacoesPage() {
         if (presencasError) throw presencasError;
 
         for (const presenca of presencas || []) {
+          const musico = musicos.find(
+            (item) => item.id === presenca.musician_id
+          );
+
+          if (!musicoEhFixo(musico)) {
+            continue;
+          }
+
           contagemEnsaios[presenca.musician_id] =
             (contagemEnsaios[
               presenca.musician_id
@@ -273,6 +320,7 @@ export default function BonificacoesPage() {
        */
 
       const rankingCalculado: Ranking[] = musicos
+        .filter(musicoEhFixo)
         .map((musico) => {
           const eventosCount =
             contagemEventos[musico.id] || 0;
@@ -491,9 +539,15 @@ export default function BonificacoesPage() {
        * SALVA SOMENTE OS VENCEDORES
        */
 
-      const vencedores = ranking.filter(
-        (item) => item.winner
-      );
+      const vencedores = ranking
+        .filter((item) => item.winner)
+        .filter((item) =>
+          musicoEhFixo(
+            musicos.find(
+              (musico) => musico.id === item.musician_id
+            )
+          )
+        );
 
       if (vencedores.length > 0) {
         const linhas = vencedores.map((item) => ({
@@ -1271,7 +1325,7 @@ export default function BonificacoesPage() {
 
           </>
         )}
-
+ 
       </div>
     </main>
   );
