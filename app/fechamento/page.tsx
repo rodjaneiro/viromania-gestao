@@ -926,15 +926,35 @@ export default function FechamentoPage() {
     [receitasRealizadas]
   );
 
-  // Valor confirmado do evento = valor previsto da receita confirmada.
-  const totalConfirmado = totalPrevisto;
+  // VALOR CONFIRMADO = valor FINAL do evento.
+  // Se o valor foi alterado no recebimento, usamos actual_amount.
+  // Caso ainda não exista valor final, usamos o valor previsto.
+  // Isso mantém a distribuição baseada no valor real do show,
+  // e não somente no valor originalmente cadastrado.
+  const totalConfirmado = useMemo(
+    () =>
+      receitasRealizadas.reduce(
+        (total, receita) =>
+          total +
+          Number(
+            receita.actual_amount ||
+              receita.expected_amount ||
+              0
+          ),
+        0
+      ),
+    [receitasRealizadas]
+  );
 
-  // Valor efetivamente quitado dos eventos da semana.
-  // Não filtramos pela data do recebimento: o evento já está realizado/quitado.
+  // RECEBIDO = dinheiro efetivamente quitado nas receitas.
+  // Como o evento já foi marcado como recebido na tela de Eventos,
+  // usamos o valor final da receita, independentemente da semana/data
+  // em que as parcelas foram cadastradas.
   const totalRecebido = useMemo(
     () =>
       receitasRealizadas.reduce(
-        (total, receita) => total + valorReceitaRecebida(receita),
+        (total, receita) =>
+          total + valorReceitaRecebida(receita),
         0
       ),
     [receitasRealizadas]
