@@ -532,8 +532,8 @@ export default function PagamentosPage() {
     return recebimentos.filter(
       (r) =>
         r.status === "recebido" &&
-        r.actual_receipt_date &&
-        r.actual_receipt_date >= dataInicioCaixa &&
+        !!r.actual_receipt_date &&
+        r.actual_receipt_date > dataInicioCaixa &&
         r.actual_receipt_date <= limiteFinanceiro
     );
   }, [
@@ -543,14 +543,8 @@ export default function PagamentosPage() {
   ]);
 
   const entradasEventosAteLimite = useMemo(() => {
-    return recebimentosReaisAteLimite
-      .filter(
-        (r) =>
-          String(r.description || "").trim().toLowerCase() !== "sinal"
-      )
-      .reduce(
-      (total, r) =>
-        total + Number(r.actual_amount || 0),
+    return recebimentosReaisAteLimite.reduce(
+      (total, r) => total + Number(r.actual_amount || 0),
       0
     );
   }, [recebimentosReaisAteLimite]);
@@ -558,7 +552,7 @@ export default function PagamentosPage() {
   const lancamentosManuaisAteLimite = useMemo(() => {
     return lancamentos.filter(
       (l) =>
-        l.transaction_date >= dataInicioCaixa &&
+        l.transaction_date > dataInicioCaixa &&
         l.transaction_date <= limiteFinanceiro &&
         !ehLancamentoAutomatico(l.description)
     );
@@ -692,38 +686,19 @@ export default function PagamentosPage() {
   const entradasEventosSemana = useMemo(() => {
     if (!fechamento) return 0;
 
-    const idsReceitasDaSemana = new Set(
-      receitasEventos
-        .filter(
-          (r) => r.confirmed && r.status !== "cancelado"
-        )
-        .map((r) => r.id)
-    );
-
+    // O saldo inicial já contém tudo que existia no caixa na data de início.
+    // Por isso, recebimentos ocorridos na própria data de início NÃO são
+    // considerados dinheiro novo desta semana.
     return recebimentos
       .filter((r) => {
         if (r.status !== "recebido" || !r.actual_receipt_date) {
           return false;
         }
 
-        if (
-          r.actual_receipt_date < semanaInicio ||
-          r.actual_receipt_date > semanaFim
-        ) {
-          return false;
-        }
-
-        if (!idsReceitasDaSemana.has(r.event_revenue_id)) {
-          return false;
-        }
-
-        const descricao = String(r.description || "")
-          .trim()
-          .toLowerCase();
-
         return (
-          descricao !== "sinal" &&
-          !descricao.includes("sinal informado")
+          r.actual_receipt_date > dataInicioCaixa &&
+          r.actual_receipt_date >= semanaInicio &&
+          r.actual_receipt_date <= semanaFim
         );
       })
       .reduce(
@@ -732,8 +707,8 @@ export default function PagamentosPage() {
       );
   }, [
     fechamento,
-    receitasEventos,
     recebimentos,
+    dataInicioCaixa,
     semanaInicio,
     semanaFim,
   ]);
@@ -830,12 +805,12 @@ export default function PagamentosPage() {
 
   const saldoCaixa =
     Number(saldoInicialCaixa || 0) +
-    entrouNaSemana +
-    entradasManuaisSemana -
-    saidasMusicosSemana -
-    saidasSociosSemana -
-    saidasDespesasSemana -
-    saidasManuaisSemana;
+    entradasEventosAteLimite +
+    entradasManuais -
+    saidasMusicosPagos -
+    saidasSociosPagos -
+    saidasDespesasPagas -
+    saidasManuais;
 
   /*
    * Resultado líquido da semana salvo no fechamento.
