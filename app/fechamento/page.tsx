@@ -888,58 +888,107 @@ export default function FechamentoPage() {
     (evento) => evento.status === "realizado"
   );
 
-  const valorFinalReceita = (receita: Receita) =>
-    Number(receita.actual_amount || receita.expected_amount || 0);
-
   const receitasRealizadas = useMemo(
     () =>
       receitas.filter((receita) => {
         if (!receita.confirmed || receita.status === "cancelado") return false;
-        const evento = eventos.find((item) => item.id === receita.event_id);
+
+        const evento = eventos.find(
+          (item) => item.id === receita.event_id
+        );
+
         return evento?.status === "realizado";
       }),
     [receitas, eventos]
   );
 
-  const totalPrevisto = useMemo(() =>
-    receitasRealizadas.reduce((total, r) => total + Number(r.expected_amount || 0), 0),
+  /*
+   * IMPORTANTE:
+   *
+   * Nesta tela o "Confirmado" representa o valor TOTAL das receitas
+   * dos eventos realizados na semana. Ele não pode depender de
+   * actual_amount, porque actual_amount representa o que foi recebido.
+   *
+   * O "Recebido" representa quanto das receitas desses eventos já foi
+   * efetivamente recebido, independentemente da data em que cada parcela
+   * entrou. Isso é necessário porque o fechamento semanal é uma conferência
+   * do resultado dos eventos, e não um relatório de movimentação de caixa.
+   *
+   * A fonte principal é event_revenues.actual_amount. Quando esse campo
+   * estiver zerado, usamos as parcelas recebidas em
+   * event_revenue_receipts. Se mesmo assim a receita estiver marcada como
+   * "recebido", usamos o valor previsto como último fallback.
+   *
+   * Assim, se o evento já foi marcado como totalmente recebido na tela de
+   * Eventos, o fechamento mostra Recebido = Confirmado e A receber = R$ 0,00.
+   */
+
+  const recebimentosPorReceita = useMemo(() => {
+    const mapa = new Map<string, number>();
+
+    for (const recebimento of recebimentos) {
+      if (recebimento.status !== "recebido") continue;
+
+      const valor = Number(recebimento.actual_amount || 0);
+      if (valor <= 0) continue;
+
+      mapa.set(
+        recebimento.event_revenue_id,
+        (mapa.get(recebimento.event_revenue_id) || 0) + valor
+      );
+    }
+
+    return mapa;
+  }, [recebimentos]);
+
+  const valorRecebidoReceita = (receita: Receita) => {
+    const valorAtual = Number(receita.actual_amount || 0);
+    const valorParcelas = Number(
+      recebimentosPorReceita.get(receita.id) || 0
+    );
+
+    if (valorAtual > 0) return valorAtual;
+    if (valorParcelas > 0) return valorParcelas;
+
+    if (receita.status === "recebido") {
+      return Number(receita.expected_amount || 0);
+    }
+
+    return 0;
+  };
+
+  const totalPrevisto = useMemo(
+    () =>
+      receitasRealizadas.reduce(
+        (total, receita) =>
+          total + Number(receita.expected_amount || 0),
+        0
+      ),
     [receitasRealizadas]
   );
 
-  const totalConfirmado = useMemo(() =>
-    receitasRealizadas.reduce((total, r) => total + valorFinalReceita(r), 0),
+  const totalConfirmado = useMemo(
+    () =>
+      receitasRealizadas.reduce(
+        (total, receita) =>
+          total + Number(receita.expected_amount || 0),
+        0
+      ),
     [receitasRealizadas]
   );
 
-  const totalRecebido = useMemo(() => {
-    const ids = new Set(receitasRealizadas.map((r) => r.id));
-    return recebimentos
-      .filter(
-        (r) =>
-          ids.has(r.event_revenue_id) &&
-          r.status === "recebido" &&
-          !!r.actual_receipt_date &&
-          r.actual_receipt_date >= semanaInicio &&
-          r.actual_receipt_date <= semanaFim
-      )
-      .reduce((total, r) => total + Number(r.actual_amount || 0), 0);
-  }, [recebimentos, receitasRealizadas, semanaInicio, semanaFim]);
-
-  const totalRecebidoAteFim = useMemo(() => {
-    const ids = new Set(receitasRealizadas.map((r) => r.id));
-    return recebimentos
-      .filter(
-        (r) =>
-          ids.has(r.event_revenue_id) &&
-          r.status === "recebido" &&
-          !!r.actual_receipt_date &&
-          r.actual_receipt_date <= semanaFim
-      )
-      .reduce((total, r) => total + Number(r.actual_amount || 0), 0);
-  }, [recebimentos, receitasRealizadas, semanaFim]);
+  const totalRecebido = useMemo(
+    () =>
+      receitasRealizadas.reduce(
+        (total, receita) =>
+          total + valorRecebidoReceita(receita),
+        0
+      ),
+    [receitasRealizadas, recebimentosPorReceita]
+  );
 
   const totalAReceber = Math.max(
-    totalConfirmado - totalRecebidoAteFim,
+    totalConfirmado - totalRecebido,
     0
   );
 
