@@ -273,15 +273,14 @@ export default function EventosPage() {
     if (templates.length === 0) return;
 
     /*
-     * Ao trocar para um ano futuro, o sistema cria apenas as
-     * próximas 4 ocorrências daquele ano, sem pré-cadastrar o ano inteiro.
+     * Mantém sempre as próximas 5 ocorrências recorrentes
+     * cadastradas automaticamente. Isso vale para o ano atual
+     * e também quando o usuário consulta um ano futuro.
      */
-    if (anoSelecionado > new Date().getFullYear()) {
-      gerarProximasOcorrencias(
-        templates,
-        anoSelecionado
-      ).then(() => carregarEventos());
-    }
+    gerarProximasOcorrencias(
+      templates,
+      anoSelecionado
+    ).then(() => carregarEventos());
   }, [anoSelecionado, templates.length]);
 
   async function carregarTemplates(): Promise<Template[]> {
@@ -377,7 +376,7 @@ export default function EventosPage() {
           let deslocamento = 0;
           deslocamento <=
             (anoAlvo && anoAlvo > anoAtual ? 364 : 35) &&
-          encontrados < 4;
+          encontrados < 5;
           deslocamento++
         ) {
           const dataOcorrencia = adicionarDias(inicio, deslocamento);
