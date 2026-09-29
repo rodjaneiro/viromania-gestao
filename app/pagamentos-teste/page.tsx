@@ -907,11 +907,15 @@ export default function PagamentosPage() {
                 <p className="text-sm font-semibold text-blue-700">
                   Valor total do caixa
                 </p>
-                <p className="mt-2 text-2xl font-extrabold text-blue-900">
-                  R$ 4.112,00
+                <p
+                  className={`mt-2 text-2xl font-extrabold ${
+                    saldoCaixa >= 0 ? "text-blue-900" : "text-red-700"
+                  }`}
+                >
+                  {moeda(saldoCaixa)}
                 </p>
                 <p className="mt-1 text-xs text-blue-700">
-                  Saldo atual do caixa — valor temporário até corrigirmos a página Caixa.
+                  Saldo anterior + entrada da semana − pagamentos realizados
                 </p>
               </div>
             </section>
