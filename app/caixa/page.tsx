@@ -19,23 +19,12 @@ function iso(d: Date) {
   )}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function mondayOf(dateString: string) {
-  const d = new Date(`${dateString}T12:00:00`);
-  const day = d.getDay();
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-  return iso(d);
-}
-
-function sundayFromMonday(monday: string) {
-  const d = new Date(`${monday}T12:00:00`);
-  d.setDate(d.getDate() + 6);
-  return iso(d);
-}
-
 function isSignal(description: string) {
   const d = String(description || "").trim().toLowerCase();
   return d === "sinal" || d.startsWith("sinal ");
 }
+
+const MANUAL_PREFIX = "MANUAL_CAIXA";
 
 export default function CaixaTestePage() {
   const [loading, setLoading] = useState(true);
@@ -44,7 +33,6 @@ export default function CaixaTestePage() {
   const [success, setSuccess] = useState("");
 
   const [data, setData] = useState<AnyRow | null>(null);
-
   const [showForm, setShowForm] = useState(false);
 
   const [form, setForm] = useState({
@@ -60,7 +48,9 @@ export default function CaixaTestePage() {
       setLoading(true);
       setError("");
 
+      // =========================================================
       // 1) SALDO INICIAL
+      // =========================================================
       const setupRes = await supabase
         .from("cash_setup")
         .select("initial_balance,start_date")
@@ -69,12 +59,17 @@ export default function CaixaTestePage() {
 
       if (setupRes.error) throw setupRes.error;
 
-      const initialBalance = Number(setupRes.data?.initial_balance || 0);
+      const initialBalance = Number(
+        setupRes.data?.initial_balance || 0
+      );
+
       const startDate = String(
         setupRes.data?.start_date || "1900-01-01"
       );
 
+      // =========================================================
       // 2) ÚLTIMO FECHAMENTO
+      // =========================================================
       const closingRes = await supabase
         .from("weekly_closings")
         .select(
@@ -89,13 +84,17 @@ export default function CaixaTestePage() {
       const closing = closingRes.data as AnyRow | null;
 
       if (!closing) {
-        throw new Error("Não encontrei nenhum fechamento semanal.");
+        throw new Error(
+          "Não encontrei nenhum fechamento semanal."
+        );
       }
 
       const weekStart = String(closing.week_start);
       const weekEnd = String(closing.week_end);
 
+      // =========================================================
       // 3) EVENTOS DA SEMANA
+      // =========================================================
       const eventsRes = await supabase
         .from("events")
         .select("id,name,event_date,status")
@@ -107,9 +106,12 @@ export default function CaixaTestePage() {
       if (eventsRes.error) throw eventsRes.error;
 
       const events = (eventsRes.data || []) as AnyRow[];
+
       const eventIds = events.map((e) => String(e.id));
 
+      // =========================================================
       // 4) RECEITAS DOS EVENTOS
+      // =========================================================
       let revenues: AnyRow[] = [];
 
       if (eventIds.length) {
@@ -120,12 +122,16 @@ export default function CaixaTestePage() {
           )
           .in("event_id", eventIds);
 
-        if (revenuesRes.error) throw revenuesRes.error;
+        if (revenuesRes.error) {
+          throw revenuesRes.error;
+        }
 
         revenues = (revenuesRes.data || []) as AnyRow[];
       }
 
+      // =========================================================
       // 5) TODOS OS RECEBIMENTOS
+      // =========================================================
       const receiptsRes = await supabase
         .from("event_revenue_receipts")
         .select(
@@ -133,36 +139,48 @@ export default function CaixaTestePage() {
         )
         .eq("status", "recebido");
 
-      if (receiptsRes.error) throw receiptsRes.error;
+      if (receiptsRes.error) {
+        throw receiptsRes.error;
+      }
 
       const receipts = (receiptsRes.data || []) as AnyRow[];
 
-      // 6) ENTRADA DOS EVENTOS DA SEMANA
+      // =========================================================
+      // 6) ENTRADAS DOS EVENTOS DA SEMANA
+      // =========================================================
       let eventWeekEntries = 0;
+
       const eventBreakdown: AnyRow[] = [];
 
       for (const event of events) {
         const eventRevenueIds = revenues
           .filter(
-            (r) => String(r.event_id) === String(event.id)
+            (r) =>
+              String(r.event_id) === String(event.id)
           )
           .map((r) => String(r.id));
 
         const eventReceipts = receipts.filter((r) =>
-          eventRevenueIds.includes(String(r.event_revenue_id))
+          eventRevenueIds.includes(
+            String(r.event_revenue_id)
+          )
         );
 
         const received = eventReceipts.reduce(
-          (sum, r) => sum + Number(r.actual_amount || 0),
+          (sum, r) =>
+            sum + Number(r.actual_amount || 0),
           0
         );
 
         const oldSignals = eventReceipts
           .filter((r) =>
-            isSignal(String(r.description || ""))
+            isSignal(
+              String(r.description || "")
+            )
           )
           .reduce(
-            (sum, r) => sum + Number(r.actual_amount || 0),
+            (sum, r) =>
+              sum + Number(r.actual_amount || 0),
             0
           );
 
@@ -182,7 +200,9 @@ export default function CaixaTestePage() {
         });
       }
 
+      // =========================================================
       // 7) SINAIS DE EVENTOS FUTUROS
+      // =========================================================
       const allRevenuesRes = await supabase
         .from("event_revenues")
         .select("id,event_id");
@@ -191,12 +211,14 @@ export default function CaixaTestePage() {
         throw allRevenuesRes.error;
       }
 
-      const allRevenues = (allRevenuesRes.data ||
-        []) as AnyRow[];
+      const allRevenues =
+        (allRevenuesRes.data || []) as AnyRow[];
 
       const allEventIds = [
         ...new Set(
-          allRevenues.map((r) => String(r.event_id))
+          allRevenues.map((r) =>
+            String(r.event_id)
+          )
         ),
       ];
 
@@ -213,8 +235,8 @@ export default function CaixaTestePage() {
           throw futureEventsRes.error;
         }
 
-        futureEvents = (futureEventsRes.data ||
-          []) as AnyRow[];
+        futureEvents =
+          (futureEventsRes.data || []) as AnyRow[];
       }
 
       const futureEventIds = new Set(
@@ -224,7 +246,9 @@ export default function CaixaTestePage() {
       const futureRevenueIds = new Set(
         allRevenues
           .filter((r) =>
-            futureEventIds.has(String(r.event_id))
+            futureEventIds.has(
+              String(r.event_id)
+            )
           )
           .map((r) => String(r.id))
       );
@@ -234,10 +258,14 @@ export default function CaixaTestePage() {
           futureRevenueIds.has(
             String(r.event_revenue_id)
           ) &&
-          isSignal(String(r.description || "")) &&
+          isSignal(
+            String(r.description || "")
+          ) &&
           !!r.actual_receipt_date &&
-          String(r.actual_receipt_date) >= startDate &&
-          String(r.actual_receipt_date) <= weekEnd
+          String(r.actual_receipt_date) >=
+            startDate &&
+          String(r.actual_receipt_date) <=
+            weekEnd
       );
 
       const futureSignalsTotal =
@@ -247,7 +275,9 @@ export default function CaixaTestePage() {
           0
         );
 
+      // =========================================================
       // 8) PAGAMENTOS DOS MÚSICOS
+      // =========================================================
       const musicianPaymentsRes = await supabase
         .from("event_musicians")
         .select(
@@ -266,7 +296,8 @@ export default function CaixaTestePage() {
       const musiciansPaid = musicianPayments
         .filter(
           (p) =>
-            String(p.payment_date) >= startDate
+            String(p.payment_date) >=
+            startDate
         )
         .reduce(
           (sum, p) =>
@@ -274,7 +305,9 @@ export default function CaixaTestePage() {
           0
         );
 
+      // =========================================================
       // 9) SÓCIOS PAGOS
+      // =========================================================
       const rodrigoPaid =
         Boolean(closing.rodrigo_paid) &&
         String(
@@ -298,7 +331,9 @@ export default function CaixaTestePage() {
       const partnersPaid =
         rodrigoPaid + marlonPaid;
 
+      // =========================================================
       // 10) DESPESAS PAGAS
+      // =========================================================
       const expensesRes = await supabase
         .from("event_expenses")
         .select("amount,payment_date")
@@ -313,7 +348,8 @@ export default function CaixaTestePage() {
       )
         .filter(
           (d: AnyRow) =>
-            String(d.payment_date) >= startDate
+            String(d.payment_date) >=
+            startDate
         )
         .reduce(
           (sum, d) =>
@@ -321,13 +357,23 @@ export default function CaixaTestePage() {
           0
         );
 
+      // =========================================================
       // 11) MOVIMENTAÇÕES MANUAIS
+      //
+      // Usamos transaction_type = "receita" porque esse
+      // é um tipo aceito pela tabela atual.
+      //
+      // Para não misturar com receitas automáticas,
+      // usamos o prefixo MANUAL_CAIXA nas observações.
+      // =========================================================
       const manualRes = await supabase
         .from("cash_transactions")
         .select(
           "id,transaction_date,description,transaction_type,amount,direction,notes,created_at"
         )
-        .eq("transaction_type", "manual")
+        .eq("transaction_type", "receita")
+        .is("event_id", null)
+        .is("musician_id", null)
         .gte("transaction_date", startDate)
         .order("transaction_date", {
           ascending: false,
@@ -340,13 +386,22 @@ export default function CaixaTestePage() {
         throw manualRes.error;
       }
 
-      const manualTransactions =
+      const allPossibleManual =
         (manualRes.data || []) as AnyRow[];
+
+      const manualTransactions =
+        allPossibleManual.filter((t) =>
+          String(t.notes || "").startsWith(
+            MANUAL_PREFIX
+          )
+        );
 
       const manualEntries =
         manualTransactions
           .filter(
-            (t) => String(t.direction) === "entrada"
+            (t) =>
+              String(t.direction) ===
+              "entrada"
           )
           .reduce(
             (sum, t) =>
@@ -357,7 +412,9 @@ export default function CaixaTestePage() {
       const manualExits =
         manualTransactions
           .filter(
-            (t) => String(t.direction) === "saida"
+            (t) =>
+              String(t.direction) ===
+              "saida"
           )
           .reduce(
             (sum, t) =>
@@ -365,7 +422,9 @@ export default function CaixaTestePage() {
             0
           );
 
+      // =========================================================
       // 12) TOTAL DO CAIXA
+      // =========================================================
       const weeklyEntries =
         eventWeekEntries +
         futureSignalsTotal +
@@ -405,6 +464,7 @@ export default function CaixaTestePage() {
       });
     } catch (e: any) {
       console.error(e);
+
       setError(
         e?.message ||
           "Erro ao calcular o caixa."
@@ -414,6 +474,9 @@ export default function CaixaTestePage() {
     }
   }
 
+  // =========================================================
+  // SALVAR MOVIMENTAÇÃO
+  // =========================================================
   async function saveMovement() {
     try {
       setSaving(true);
@@ -444,19 +507,33 @@ export default function CaixaTestePage() {
         );
       }
 
+      const cleanNotes =
+        form.notes.trim();
+
+      const finalNotes = cleanNotes
+        ? `${MANUAL_PREFIX} | ${cleanNotes}`
+        : MANUAL_PREFIX;
+
       const { error: insertError } =
         await supabase
           .from("cash_transactions")
           .insert({
             transaction_date:
               form.transaction_date,
+
             description:
               form.description.trim(),
-            transaction_type: "manual",
+
+            // A tabela atual aceita "receita".
+            transaction_type:
+              "receita",
+
             amount,
-            direction: form.direction,
-            notes:
-              form.notes.trim() || null,
+
+            direction:
+              form.direction,
+
+            notes: finalNotes,
           });
 
       if (insertError) {
@@ -480,6 +557,7 @@ export default function CaixaTestePage() {
       await runTest();
     } catch (e: any) {
       console.error(e);
+
       setError(
         e?.message ||
           "Não foi possível salvar a movimentação."
@@ -489,16 +567,23 @@ export default function CaixaTestePage() {
     }
   }
 
+  // =========================================================
+  // CARREGAMENTO
+  // =========================================================
   useEffect(() => {
     runTest();
   }, []);
 
+  // =========================================================
+  // INTERFACE
+  // =========================================================
   return (
     <main className="min-h-screen bg-slate-100 p-4 text-slate-900">
       <div className="mx-auto max-w-6xl">
 
         {/* CABEÇALHO */}
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+
           <div>
             <div className="text-xs font-semibold uppercase text-blue-700">
               Financeiro
@@ -514,6 +599,7 @@ export default function CaixaTestePage() {
           </div>
 
           <div className="flex gap-2">
+
             <button
               onClick={() => {
                 setShowForm(true);
@@ -531,16 +617,18 @@ export default function CaixaTestePage() {
             >
               Recalcular
             </button>
+
           </div>
         </div>
 
-        {/* MENSAGENS */}
+        {/* ERRO */}
         {error && (
           <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-red-700">
             <b>ERRO:</b> {error}
           </div>
         )}
 
+        {/* SUCESSO */}
         {success && (
           <div className="mb-4 rounded-lg border border-green-300 bg-green-50 p-4 text-green-700">
             <b>Sucesso:</b> {success}
@@ -550,7 +638,9 @@ export default function CaixaTestePage() {
         {/* FORMULÁRIO */}
         {showForm && (
           <section className="mb-5 rounded-xl border bg-white p-5 shadow">
+
             <div className="mb-5 flex items-center justify-between">
+
               <div>
                 <h2 className="text-xl font-bold">
                   Nova movimentação
@@ -562,32 +652,39 @@ export default function CaixaTestePage() {
               </div>
 
               <button
-                onClick={() => setShowForm(false)}
+                onClick={() =>
+                  setShowForm(false)
+                }
                 className="rounded-lg px-3 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100"
               >
                 Fechar
               </button>
+
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
 
               {/* TIPO */}
               <div>
+
                 <label className="mb-2 block text-sm font-semibold">
                   Tipo
                 </label>
 
                 <div className="grid grid-cols-2 gap-2">
+
                   <button
                     type="button"
                     onClick={() =>
                       setForm({
                         ...form,
-                        direction: "entrada",
+                        direction:
+                          "entrada",
                       })
                     }
                     className={`rounded-lg border p-3 text-sm font-bold ${
-                      form.direction === "entrada"
+                      form.direction ===
+                      "entrada"
                         ? "border-green-500 bg-green-50 text-green-700"
                         : "bg-white text-slate-600"
                     }`}
@@ -600,29 +697,35 @@ export default function CaixaTestePage() {
                     onClick={() =>
                       setForm({
                         ...form,
-                        direction: "saida",
+                        direction:
+                          "saida",
                       })
                     }
                     className={`rounded-lg border p-3 text-sm font-bold ${
-                      form.direction === "saida"
+                      form.direction ===
+                      "saida"
                         ? "border-red-500 bg-red-50 text-red-700"
                         : "bg-white text-slate-600"
                     }`}
                   >
                     🔴 Saída
                   </button>
+
                 </div>
               </div>
 
               {/* DATA */}
               <div>
+
                 <label className="mb-2 block text-sm font-semibold">
                   Data
                 </label>
 
                 <input
                   type="date"
-                  value={form.transaction_date}
+                  value={
+                    form.transaction_date
+                  }
                   onChange={(e) =>
                     setForm({
                       ...form,
@@ -632,10 +735,12 @@ export default function CaixaTestePage() {
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-blue-500"
                 />
+
               </div>
 
               {/* VALOR */}
               <div>
+
                 <label className="mb-2 block text-sm font-semibold">
                   Valor
                 </label>
@@ -648,15 +753,18 @@ export default function CaixaTestePage() {
                   onChange={(e) =>
                     setForm({
                       ...form,
-                      amount: e.target.value,
+                      amount:
+                        e.target.value,
                     })
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-blue-500"
                 />
+
               </div>
 
               {/* DESCRIÇÃO */}
               <div>
+
                 <label className="mb-2 block text-sm font-semibold">
                   Descrição
                 </label>
@@ -664,7 +772,9 @@ export default function CaixaTestePage() {
                 <input
                   type="text"
                   placeholder="Ex.: Compra de microfone"
-                  value={form.description}
+                  value={
+                    form.description
+                  }
                   onChange={(e) =>
                     setForm({
                       ...form,
@@ -674,10 +784,12 @@ export default function CaixaTestePage() {
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-blue-500"
                 />
+
               </div>
 
               {/* OBSERVAÇÃO */}
               <div className="md:col-span-2">
+
                 <label className="mb-2 block text-sm font-semibold">
                   Observação
                 </label>
@@ -689,15 +801,19 @@ export default function CaixaTestePage() {
                   onChange={(e) =>
                     setForm({
                       ...form,
-                      notes: e.target.value,
+                      notes:
+                        e.target.value,
                     })
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-blue-500"
                 />
+
               </div>
+
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
+
               <button
                 onClick={() =>
                   setShowForm(false)
@@ -716,10 +832,12 @@ export default function CaixaTestePage() {
                   ? "Salvando..."
                   : "Salvar movimentação"}
               </button>
+
             </div>
           </section>
         )}
 
+        {/* LOADING */}
         {loading && (
           <div className="rounded-lg bg-white p-6 shadow">
             Carregando dados reais do Supabase...
@@ -732,6 +850,7 @@ export default function CaixaTestePage() {
             <div className="grid gap-4 md:grid-cols-3">
 
               <div className="rounded-xl border bg-white p-5 shadow">
+
                 <div className="text-xs font-semibold uppercase text-slate-500">
                   Saldo atual
                 </div>
@@ -739,9 +858,11 @@ export default function CaixaTestePage() {
                 <div className="mt-2 text-3xl font-bold">
                   {brl(data.currentBalance)}
                 </div>
+
               </div>
 
               <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+
                 <div className="text-xs font-semibold uppercase text-green-700">
                   Entradas
                 </div>
@@ -749,9 +870,11 @@ export default function CaixaTestePage() {
                 <div className="mt-2 text-3xl font-bold text-green-700">
                   {brl(data.weeklyEntries)}
                 </div>
+
               </div>
 
               <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+
                 <div className="text-xs font-semibold uppercase text-red-700">
                   Saídas
                 </div>
@@ -759,11 +882,14 @@ export default function CaixaTestePage() {
                 <div className="mt-2 text-3xl font-bold text-red-700">
                   {brl(data.weeklyExits)}
                 </div>
+
               </div>
+
             </div>
 
             {/* RESUMO */}
             <section className="mt-5 rounded-xl border bg-white p-5 shadow">
+
               <h2 className="text-xl font-bold">
                 Resumo do Caixa
               </h2>
@@ -777,8 +903,11 @@ export default function CaixaTestePage() {
 
                 <div className="rounded-lg bg-slate-50 p-4">
                   <b>Saldo inicial</b>
+
                   <div className="text-xl">
-                    {brl(data.initialBalance)}
+                    {brl(
+                      data.initialBalance
+                    )}
                   </div>
                 </div>
 
@@ -788,7 +917,9 @@ export default function CaixaTestePage() {
                   </b>
 
                   <div className="text-xl text-green-700">
-                    {brl(data.eventWeekEntries)}
+                    {brl(
+                      data.eventWeekEntries
+                    )}
                   </div>
                 </div>
 
@@ -798,56 +929,80 @@ export default function CaixaTestePage() {
                   </b>
 
                   <div className="text-xl text-green-700">
-                    {brl(data.futureSignalsTotal)}
+                    {brl(
+                      data.futureSignalsTotal
+                    )}
                   </div>
                 </div>
 
                 <div className="rounded-lg bg-green-50 p-4">
-                  <b>Entradas manuais</b>
+                  <b>
+                    Entradas manuais
+                  </b>
 
                   <div className="text-xl text-green-700">
-                    {brl(data.manualEntries)}
+                    {brl(
+                      data.manualEntries
+                    )}
                   </div>
                 </div>
 
                 <div className="rounded-lg bg-red-50 p-4">
-                  <b>Músicos pagos</b>
+                  <b>
+                    Músicos pagos
+                  </b>
 
                   <div className="text-xl text-red-700">
-                    {brl(data.musiciansPaid)}
+                    {brl(
+                      data.musiciansPaid
+                    )}
                   </div>
                 </div>
 
                 <div className="rounded-lg bg-red-50 p-4">
-                  <b>Rodrigo + Marlon</b>
+                  <b>
+                    Rodrigo + Marlon
+                  </b>
 
                   <div className="text-xl text-red-700">
-                    {brl(data.partnersPaid)}
+                    {brl(
+                      data.partnersPaid
+                    )}
                   </div>
                 </div>
 
                 <div className="rounded-lg bg-red-50 p-4">
-                  <b>Despesas pagas</b>
+                  <b>
+                    Despesas pagas
+                  </b>
 
                   <div className="text-xl text-red-700">
-                    {brl(data.expensesPaid)}
+                    {brl(
+                      data.expensesPaid
+                    )}
                   </div>
                 </div>
 
                 <div className="rounded-lg bg-red-50 p-4">
-                  <b>Saídas manuais</b>
+                  <b>
+                    Saídas manuais
+                  </b>
 
                   <div className="text-xl text-red-700">
-                    {brl(data.manualExits)}
+                    {brl(
+                      data.manualExits
+                    )}
                   </div>
                 </div>
+
               </div>
             </section>
 
-            {/* MOVIMENTAÇÕES MANUAIS */}
+            {/* MOVIMENTAÇÕES */}
             <section className="mt-5 rounded-xl border bg-white p-5 shadow">
 
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+
                 <div>
                   <h2 className="text-xl font-bold">
                     Movimentações do Caixa
@@ -868,11 +1023,13 @@ export default function CaixaTestePage() {
                 >
                   + Nova movimentação
                 </button>
+
               </div>
 
               <div className="mt-4 overflow-x-auto">
 
-                {data.manualTransactions.length === 0 ? (
+                {data.manualTransactions.length ===
+                0 ? (
                   <div className="rounded-lg bg-slate-50 p-6 text-center text-sm text-slate-500">
                     Nenhuma movimentação manual cadastrada.
                   </div>
@@ -881,6 +1038,7 @@ export default function CaixaTestePage() {
 
                     <thead>
                       <tr className="border-b text-left">
+
                         <th className="p-3">
                           Data
                         </th>
@@ -900,22 +1058,44 @@ export default function CaixaTestePage() {
                         <th className="p-3 text-right">
                           Valor
                         </th>
+
                       </tr>
                     </thead>
 
                     <tbody>
+
                       {data.manualTransactions.map(
                         (item: AnyRow) => {
+
                           const isEntrada =
                             String(
                               item.direction
-                            ) === "entrada";
+                            ) ===
+                            "entrada";
+
+                          const rawNotes =
+                            String(
+                              item.notes || ""
+                            );
+
+                          const displayNotes =
+                            rawNotes
+                              .replace(
+                                `${MANUAL_PREFIX} | `,
+                                ""
+                              )
+                              .replace(
+                                MANUAL_PREFIX,
+                                ""
+                              )
+                              .trim();
 
                           return (
                             <tr
                               key={item.id}
                               className="border-b last:border-0"
                             >
+
                               <td className="p-3">
                                 {new Date(
                                   `${item.transaction_date}T12:00:00`
@@ -925,6 +1105,7 @@ export default function CaixaTestePage() {
                               </td>
 
                               <td className="p-3">
+
                                 <span
                                   className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
                                     isEntrada
@@ -936,14 +1117,18 @@ export default function CaixaTestePage() {
                                     ? "Entrada"
                                     : "Saída"}
                                 </span>
+
                               </td>
 
                               <td className="p-3 font-medium">
-                                {item.description}
+                                {
+                                  item.description
+                                }
                               </td>
 
                               <td className="p-3 text-slate-500">
-                                {item.notes || "-"}
+                                {displayNotes ||
+                                  "-"}
                               </td>
 
                               <td
@@ -960,13 +1145,16 @@ export default function CaixaTestePage() {
                                   item.amount
                                 )}
                               </td>
+
                             </tr>
                           );
                         }
                       )}
+
                     </tbody>
                   </table>
                 )}
+
               </div>
             </section>
 
@@ -978,10 +1166,12 @@ export default function CaixaTestePage() {
               </h2>
 
               <div className="mt-3 overflow-x-auto">
+
                 <table className="w-full text-sm">
 
                   <thead>
                     <tr className="border-b text-left">
+
                       <th className="p-2">
                         Evento
                       </th>
@@ -997,10 +1187,12 @@ export default function CaixaTestePage() {
                       <th className="p-2">
                         Entra no caixa
                       </th>
+
                     </tr>
                   </thead>
 
                   <tbody>
+
                     {data.eventBreakdown.map(
                       (
                         e: AnyRow,
@@ -1010,12 +1202,15 @@ export default function CaixaTestePage() {
                           key={`${e.event}-${e.date}-${i}`}
                           className="border-b"
                         >
+
                           <td className="p-2">
                             {e.event}
                           </td>
 
                           <td className="p-2">
-                            {brl(e.received)}
+                            {brl(
+                              e.received
+                            )}
                           </td>
 
                           <td className="p-2">
@@ -1029,11 +1224,14 @@ export default function CaixaTestePage() {
                               e.entersNow
                             )}
                           </td>
+
                         </tr>
                       )
                     )}
+
                   </tbody>
                 </table>
+
               </div>
             </section>
           </>
