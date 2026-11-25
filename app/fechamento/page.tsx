@@ -2,6 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { semDuplicadosAutomaticos } from "@/lib/caixa";
+import { pagarBonificacoesDaSemana } from "@/lib/bonus";
+import {
+  inicioDaSemana,
+  fimDaSemana,
+  quintaDaSemana,
+  semanaParaFechar,
+  diaAnteriorISO,
+} from "@/lib/semana";
+import {
+  ehDesconto,
+  montarNotas,
+  textoSemTag,
+  descreverAjuste,
+  ajustesDaPessoa,
+  somaAjustes,
+  detalharPagamento,
+  type TipoAjuste,
+} from "@/lib/despesas";
 
 type Evento = {
   id: string;
@@ -43,10 +62,14 @@ type Despesa = {
 };
 
 type Recebimento = {
+  id: string;
   event_revenue_id: string;
+  description: string;
+  expected_amount: number;
   actual_amount: number;
   actual_receipt_date: string | null;
   status: string;
+  notes: string | null;
 };
 
 type Musico = {
@@ -86,45 +109,32 @@ function dataISO(date: Date) {
   return `${ano}-${mes}-${dia}`;
 }
 
-function segundaDaSemana(date: Date) {
-  const d = new Date(date);
-  const dia = d.getDay();
-
-  const diferenca = dia === 0 ? -6 : 1 - dia;
-
-  d.setDate(d.getDate() + diferenca);
-
-  return d;
+function isSinal(descricao: string) {
+  const d = String(descricao || "").trim().toLowerCase();
+  return d === "sinal" || d.startsWith("sinal ");
 }
 
-function domingoDaSemana(date: Date) {
-  const segunda = segundaDaSemana(date);
-
-  const domingo = new Date(segunda);
-  domingo.setDate(segunda.getDate() + 6);
-
-  return domingo;
-}
-
-function quintaDaSemana(date: Date) {
-  const segunda = segundaDaSemana(date);
-
-  const quinta = new Date(segunda);
-  quinta.setDate(segunda.getDate() + 3);
-
-  return quinta;
+function numeroBR(valor: string) {
+  const s = String(valor || "").trim();
+  if (!s) return 0;
+  const n = Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export default function FechamentoPage() {
   const hoje = new Date();
 
   const [semanaReferencia, setSemanaReferencia] = useState(
-    dataISO(hoje)
+    semanaParaFechar()
   );
 
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [receitas, setReceitas] = useState<Receita[]>([]);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
+  // Valor recebido no fechamento (o restante, sem o sinal), por receita
+  const [valoresFechamento, setValoresFechamento] = useState<Record<string, string>>({});
+  // Cópias repetidas geradas pela sincronização antiga (apagadas ao salvar)
+  const [duplicados, setDuplicados] = useState<Recebimento[]>([]);
   const [musicosEventos, setMusicosEventos] = useState<MusicoEvento[]>([]);
   const [musicosEventosOriginais, setMusicosEventosOriginais] = useState<MusicoEvento[]>([]);
   const [musicosEventosRemovidos, setMusicosEventosRemovidos] = useState<string[]>([]);
@@ -153,19 +163,30 @@ export default function FechamentoPage() {
   // DESPESA
   const [eventoDespesa, setEventoDespesa] = useState("");
   const [descricaoDespesa, setDescricaoDespesa] = useState("");
-  const [valorDespesa, setValorDespesa] = useState("");
+  // Quem recebe o valor da despesa: "outro" (sai do caixa), "rodrigo",
+  // "marlon", "socios" (metade cada) ou "musico:<id>" (músico do evento)
+  const [tipoDespesa, setTipoDespesa] = useState<TipoAjuste>("reembolso");
+  // Pessoas marcadas e o valor de cada uma.
+  // Chaves: "outro" (posto/fornecedor), "rodrigo", "marlon" ou id do músico.
+  const [pessoasDespesa, setPessoasDespesa] = useState<Record<string, string>>({});
+
+  // Fechamento já gravado desta semana (pode ser um antigo, de segunda a domingo)
+  const [fechamentoId, setFechamentoId] = useState<string | null>(null);
+  const [rodrigoPagoData, setRodrigoPagoData] = useState<string | null>(null);
+  const [marlonPagoData, setMarlonPagoData] = useState<string | null>(null);
   const [salvandoDespesa, setSalvandoDespesa] = useState(false);
 
+  // Semana de terça (inicio) a segunda (fim)
   const segunda = useMemo(
     () =>
-      segundaDaSemana(
+      inicioDaSemana(
         new Date(`${semanaReferencia}T12:00:00`)
       ),
     [semanaReferencia]
   );
 
   const domingo = useMemo(
-    () => domingoDaSemana(segunda),
+    () => fimDaSemana(segunda),
     [segunda]
   );
 
@@ -241,21 +262,57 @@ export default function FechamentoPage() {
           const { data: recebimentosData, error: recebimentosError } =
             await supabase
               .from("event_revenue_receipts")
-              .select("event_revenue_id,actual_amount,actual_receipt_date,status")
+              .select("id,event_revenue_id,description,expected_amount,actual_amount,actual_receipt_date,status,notes")
               .in("event_revenue_id", receitaIds);
 
           if (recebimentosError) throw recebimentosError;
 
-          setRecebimentos(
-            (recebimentosData || []).map((item: any) => ({
-              event_revenue_id: item.event_revenue_id,
-              actual_amount: Number(item.actual_amount || 0),
-              actual_receipt_date: item.actual_receipt_date || null,
-              status: item.status || "pendente",
-            }))
-          );
+          const recebimentosBrutos: Recebimento[] = (recebimentosData || []).map((item: any) => ({
+            id: String(item.id),
+            event_revenue_id: String(item.event_revenue_id),
+            description: String(item.description || ""),
+            expected_amount: Number(item.expected_amount || 0),
+            actual_amount: Number(item.actual_amount || 0),
+            actual_receipt_date: item.actual_receipt_date || null,
+            status: item.status || "pendente",
+            notes: item.notes || null,
+          }));
+
+          const recebimentosLista = semDuplicadosAutomaticos(recebimentosBrutos);
+          const idsValidos = new Set(recebimentosLista.map((p) => p.id));
+          setDuplicados(recebimentosBrutos.filter((p) => !idsValidos.has(p.id)));
+          setRecebimentos(recebimentosLista);
+
+          // Valor já lançado no fechamento = recebimentos (sem sinal) já recebidos
+          const iniciais: Record<string, string> = {};
+          for (const receita of receitasData || []) {
+            const parcelas = recebimentosLista.filter(
+              (p) => p.event_revenue_id === String(receita.id)
+            );
+            const semSinal = parcelas
+              .filter((p) => p.status === "recebido" && !isSinal(p.description))
+              .reduce((s, p) => s + p.actual_amount, 0);
+            const sinal = parcelas
+              .filter((p) => p.status === "recebido" && isSinal(p.description))
+              .reduce((s, p) => s + p.actual_amount, 0);
+
+            let valor = semSinal;
+            // Receita antiga marcada como recebida cujo restante só ficou
+            // gravado no total da receita (sem parcela recebida)
+            const temRestanteRecebido = parcelas.some(
+              (p) => p.status === "recebido" && !isSinal(p.description)
+            );
+            if (receita.status === "recebido" && !temRestanteRecebido) {
+              valor = Math.max(Number(receita.actual_amount || 0) - sinal, 0);
+            }
+
+            iniciais[String(receita.id)] = valor > 0 ? String(valor) : "";
+          }
+          setValoresFechamento(iniciais);
         } else {
           setRecebimentos([]);
+          setDuplicados([]);
+          setValoresFechamento({});
         }
 
         const {
@@ -380,26 +437,36 @@ export default function FechamentoPage() {
   }, [semanaInicio, semanaFim, dataEnsaio]);
 
 
+  const [recarregarStatus, setRecarregarStatus] = useState(0);
+
   useEffect(() => {
     async function carregarStatusDistribuicao() {
-      const { data, error } = await supabase
+      // Procura o fechamento desta semana (terça a segunda) ou o antigo
+      // equivalente, que começava na segunda-feira anterior.
+      const { data: lista, error } = await supabase
         .from("weekly_closings")
-        .select("rodrigo_paid,marlon_paid")
-        .eq("week_start", semanaInicio)
-        .eq("week_end", semanaFim)
-        .maybeSingle();
+        .select("id,week_start,rodrigo_paid,marlon_paid,rodrigo_payment_date,marlon_payment_date")
+        .in("week_start", [semanaInicio, diaAnteriorISO(semanaInicio)]);
 
       if (error) {
         console.error(error);
         return;
       }
 
+      const data =
+        (lista || []).find((f: any) => f.week_start === semanaInicio) ||
+        (lista || [])[0] ||
+        null;
+
+      setFechamentoId(data?.id ? String(data.id) : null);
       setRodrigoPago(Boolean(data?.rodrigo_paid));
       setMarlonPago(Boolean(data?.marlon_paid));
+      setRodrigoPagoData(data?.rodrigo_payment_date || null);
+      setMarlonPagoData(data?.marlon_payment_date || null);
     }
 
     carregarStatusDistribuicao();
-  }, [semanaInicio, semanaFim]);
+  }, [semanaInicio, semanaFim, recarregarStatus]);
 
   function mudarSemana(direcao: number) {
     const novaData = new Date(
@@ -414,7 +481,7 @@ export default function FechamentoPage() {
   }
 
   function voltarSemanaAtual() {
-    setSemanaReferencia(dataISO(new Date()));
+    setSemanaReferencia(semanaParaFechar());
   }
 
   function marcarEvento(
@@ -440,7 +507,6 @@ export default function FechamentoPage() {
       update.status = !receita.confirmed ? "pendente" : receita.status;
     } else if (campo === "recebido") {
       update.status = "recebido";
-      update.actual_amount = receita.actual_amount || receita.expected_amount;
       update.actual_receipt_date = dataISO(new Date());
     } else if (campo === "pendente") {
       update.status = "pendente";
@@ -461,14 +527,47 @@ export default function FechamentoPage() {
   }
 
   function alterarValorReceita(receita: Receita, valor: string) {
-    const numero = Number(valor);
-    if (Number.isNaN(numero)) return;
+    setValoresFechamento((atual) => ({ ...atual, [receita.id]: valor }));
 
-    setReceitas((atual) =>
-      atual.map((item) =>
-        item.id === receita.id ? { ...item, actual_amount: numero } : item
+    // Digitou um valor: considera recebido
+    if (numeroBR(valor) > 0 && receita.status !== "recebido") {
+      setReceitas((atual) =>
+        atual.map((item) =>
+          item.id === receita.id
+            ? {
+                ...item,
+                status: "recebido",
+                actual_receipt_date: item.actual_receipt_date || dataISO(new Date()),
+              }
+            : item
+        )
+      );
+    }
+
+    setMensagem('Valor alterado. Clique em "Salvar fechamento da semana" para gravar.');
+  }
+
+  // Sinal já recebido (entrou no caixa na data do pagamento)
+  function sinalDaReceita(receitaId: string) {
+    return recebimentos
+      .filter(
+        (p) =>
+          p.event_revenue_id === receitaId &&
+          p.status === "recebido" &&
+          isSinal(p.description)
       )
-    );
+      .reduce((s, p) => s + p.actual_amount, 0);
+  }
+
+  // Valor recebido no fechamento (sem o sinal)
+  function restoDaReceita(receita: Receita) {
+    if (receita.status !== "recebido") return 0;
+    return numeroBR(valoresFechamento[receita.id] || "");
+  }
+
+  // Total realmente recebido pela receita = sinal + recebido no fechamento
+  function recebidoDaReceita(receita: Receita) {
+    return sinalDaReceita(receita.id) + restoDaReceita(receita);
   }
 
   function alterarPagamento(participante: MusicoEvento) {
@@ -569,9 +668,29 @@ export default function FechamentoPage() {
       return;
     }
 
-    const valor = Number(valorDespesa);
-    if (!valor || valor <= 0) {
-      alert("Informe um valor válido.");
+    const valores: { rodrigo?: number; marlon?: number; musicos: Record<string, number> } = {
+      musicos: {},
+    };
+    let outro = 0;
+    let total = 0;
+
+    for (const [chave, texto] of Object.entries(pessoasDespesa)) {
+      const v = numeroBR(texto);
+      if (v <= 0) continue;
+      total += v;
+      if (chave === "outro") outro = v;
+      else if (chave === "rodrigo") valores.rodrigo = v;
+      else if (chave === "marlon") valores.marlon = v;
+      else valores.musicos[chave] = v;
+    }
+
+    if (total <= 0) {
+      alert("Marque quem recebe (ou de quem será descontado) e informe o valor.");
+      return;
+    }
+
+    if (tipoDespesa === "desconto" && outro > 0) {
+      alert("Desconto é sempre de uma pessoa do grupo.");
       return;
     }
 
@@ -581,16 +700,18 @@ export default function FechamentoPage() {
         id: `temp-${Date.now()}`,
         event_id: eventoDespesa,
         description: descricaoDespesa.trim(),
-        amount: valor,
+        amount: Math.round(total * 100) / 100,
         payment_date: dataISO(new Date()),
-        notes: null,
+        notes: montarNotas(tipoDespesa, valores),
       },
     ]);
 
     setEventoDespesa("");
     setDescricaoDespesa("");
-    setValorDespesa("");
-    setMensagem('Despesa adicionada. Clique em "Salvar fechamento da semana" para gravar.');
+    setPessoasDespesa({});
+    setMensagem(
+      `${tipoDespesa === "desconto" ? "Desconto" : "Despesa"} adicionado. Clique em "Salvar fechamento da semana" para gravar.`
+    );
   }
 
   function excluirDespesa(id: string) {
@@ -650,6 +771,98 @@ export default function FechamentoPage() {
 
   function adicionarMusicoAoEventoPlaceholder() {}
 
+  /**
+   * Grava o que foi recebido no fechamento.
+   *
+   * - O sinal (parcela "Sinal") não é alterado aqui: ele já entrou no
+   *   caixa na data em que foi pago.
+   * - O valor digitado em "Recebido no fechamento" vira UMA parcela
+   *   "Saldo final" recebida. Parcelas pendentes ou repetidas (sem sinal)
+   *   são substituídas, evitando valores em dobro.
+   * - actual_amount da receita = sinal + recebido no fechamento.
+   */
+  async function salvarRecebimentoReceita(receita: Receita) {
+    const parcelas = recebimentos.filter((p) => p.event_revenue_id === receita.id);
+    const parcelasSemSinal = parcelas.filter((p) => !isSinal(p.description));
+    const sinal = sinalDaReceita(receita.id);
+    const resto = restoDaReceita(receita);
+
+    // Remove cópias repetidas da sincronização antiga
+    const idsDuplicados = duplicados
+      .filter((p) => p.event_revenue_id === receita.id)
+      .map((p) => p.id);
+    if (idsDuplicados.length > 0) {
+      const { error } = await supabase
+        .from("event_revenue_receipts")
+        .delete()
+        .in("id", idsDuplicados);
+      if (error) throw error;
+    }
+
+    if (receita.confirmed && receita.status === "recebido") {
+      const recebidasSemSinal = parcelasSemSinal.filter((p) => p.status === "recebido");
+      const somaAtual = recebidasSemSinal.reduce((s, p) => s + p.actual_amount, 0);
+      const pendentes = parcelasSemSinal.filter((p) => p.status !== "recebido");
+      const precisaReescrever =
+        Math.abs(somaAtual - resto) > 0.009 || recebidasSemSinal.length > 1;
+
+      const idsApagar = precisaReescrever
+        ? parcelasSemSinal.map((p) => p.id)
+        : pendentes.map((p) => p.id);
+
+      if (idsApagar.length > 0) {
+        const { error } = await supabase
+          .from("event_revenue_receipts")
+          .delete()
+          .in("id", idsApagar);
+        if (error) throw error;
+      }
+
+      if (precisaReescrever && resto > 0) {
+        const dataRecebimento =
+          recebidasSemSinal.map((p) => p.actual_receipt_date).filter(Boolean).sort().at(-1) ||
+          dataISO(new Date());
+
+        const { error } = await supabase.from("event_revenue_receipts").insert({
+          event_revenue_id: receita.id,
+          description: "Saldo final",
+          expected_amount: resto,
+          actual_amount: resto,
+          expected_receipt_date: dataRecebimento,
+          actual_receipt_date: dataRecebimento,
+          status: "recebido",
+          payment_method: null,
+          notes: "Recebido no fechamento semanal",
+        });
+        if (error) throw error;
+      }
+    }
+
+    const recebidoTotal =
+      receita.confirmed && receita.status === "recebido" ? sinal + resto : sinal;
+
+    const statusFinal =
+      receita.status === "cancelado"
+        ? "cancelado"
+        : receita.status === "recebido"
+          ? "recebido"
+          : sinal > 0
+            ? "parcial"
+            : "pendente";
+
+    const { error } = await supabase
+      .from("event_revenues")
+      .update({
+        actual_amount: recebidoTotal,
+        confirmed: receita.confirmed,
+        status: statusFinal,
+        actual_receipt_date:
+          receita.status === "recebido" ? receita.actual_receipt_date : null,
+      })
+      .eq("id", receita.id);
+    if (error) throw error;
+  }
+
   async function salvarFechamento() {
     try {
       setSaving(true);
@@ -665,16 +878,7 @@ export default function FechamentoPage() {
       }
 
       for (const receita of receitas) {
-        const { error } = await supabase
-          .from("event_revenues")
-          .update({
-            actual_amount: receita.actual_amount,
-            confirmed: receita.confirmed,
-            status: receita.status,
-            actual_receipt_date: receita.actual_receipt_date,
-          })
-          .eq("id", receita.id);
-        if (error) throw error;
+        await salvarRecebimentoReceita(receita);
       }
 
       if (musicosEventosRemovidos.length > 0) {
@@ -689,7 +893,20 @@ export default function FechamentoPage() {
         musicosEventosOriginais.map((item) => [item.id, item])
       );
 
-      for (const participante of musicosEventos) {
+      for (const naTela of musicosEventos) {
+        // Ao fechar a semana, os músicos dos eventos realizados são
+        // considerados pagos na segunda-feira do fechamento (fim da semana).
+        const realizado =
+          eventos.find((e) => e.id === naTela.event_id)?.status === "realizado";
+
+        const participante: MusicoEvento = realizado
+          ? {
+              ...naTela,
+              payment_status: "pago",
+              payment_date: naTela.payment_date || semanaFim,
+            }
+          : { ...naTela, payment_status: "pendente", payment_date: null };
+
         if (participante.id) {
           const original = originaisMap.get(participante.id);
 
@@ -795,10 +1012,7 @@ export default function FechamentoPage() {
         if (error) throw error;
       }
 
-            const { error } = await supabase
-        .from("weekly_closings")
-        .upsert(
-          {
+      const dadosFechamento = {
             week_start: semanaInicio,
             week_end: semanaFim,
             total_expected: totalPrevisto,
@@ -808,21 +1022,33 @@ export default function FechamentoPage() {
             total_musicians: totalMusicos,
             total_other_expenses: totalDespesas,
             net_result: resultadoLiquido,
-            rodrigo_amount: rodrigo,
-            marlon_amount: marlon,
+            // Valor da semana + reembolsos de despesas (ex.: gasolina)
+            rodrigo_amount: rodrigoTotal,
+            marlon_amount: marlonTotal,
             group_cash_amount: caixaGrupo,
             rodrigo_paid: rodrigoPago,
             marlon_paid: marlonPago,
-            rodrigo_payment_date: rodrigoPago ? dataISO(new Date()) : null,
-            marlon_payment_date: marlonPago ? dataISO(new Date()) : null,
-          },
-          {
-            onConflict:
-              "week_start,week_end",
-          }
-        );
+            // Mantém a data original do pagamento ao salvar de novo
+            rodrigo_payment_date: rodrigoPago ? rodrigoPagoData || dataISO(new Date()) : null,
+            marlon_payment_date: marlonPago ? marlonPagoData || dataISO(new Date()) : null,
+      };
+
+      const { error } = fechamentoId
+        ? await supabase
+            .from("weekly_closings")
+            .update(dadosFechamento)
+            .eq("id", fechamentoId)
+        : await supabase
+            .from("weekly_closings")
+            .upsert(dadosFechamento, { onConflict: "week_start,week_end" });
 
       if (error) throw error;
+
+      // Última semana do mês: a bonificação mensal é paga junto
+      await pagarBonificacoesDaSemana(semanaInicio, semanaFim, semanaFim);
+
+      setRecarregarStatus((n) => n + 1);
+      await carregarSemana();
 
       setMensagem(
         "Fechamento semanal salvo com sucesso."
@@ -859,7 +1085,7 @@ export default function FechamentoPage() {
   function pagarDistribuicao(
     tipo: "rodrigo" | "marlon"
   ) {
-    const valor = tipo === "rodrigo" ? rodrigo : marlon;
+    const valor = tipo === "rodrigo" ? rodrigoTotal : marlonTotal;
     const jaPago = tipo === "rodrigo" ? rodrigoPago : marlonPago;
 
     if (jaPago) return;
@@ -877,8 +1103,10 @@ export default function FechamentoPage() {
 
     if (tipo === "rodrigo") {
       setRodrigoPago(true);
+      setRodrigoPagoData(dataISO(new Date()));
     } else {
       setMarlonPago(true);
+      setMarlonPagoData(dataISO(new Date()));
     }
 
     setMensagem(`Pagamento de ${nome} marcado. Clique em "Salvar fechamento da semana" para gravar.`);
@@ -889,81 +1117,48 @@ export default function FechamentoPage() {
   );
 
   /*
-   * O Fechamento semanal trabalha com o resultado FINAL dos eventos.
-   *
-   * Por isso, "Recebido" NÃO depende da data da parcela de recebimento.
-   * Se uma receita do evento está marcada como "recebido", ela já foi
-   * quitada na tela de Eventos e deve entrar integralmente neste fechamento.
-   *
-   * O Caixa continua usando event_revenue_receipts para controlar o dinheiro
-   * que efetivamente entrou, mantendo as duas coisas separadas.
+   * Regras do fechamento:
+   * - Valor PREVISTO = valor cobrado pelo evento. É só referência,
+   *   não entra em nenhum cálculo de resultado ou caixa.
+   * - SINAL = parcela "Sinal" já recebida (entrou no caixa na data do pagamento).
+   * - RECEBIDO NO FECHAMENTO = o restante que realmente foi recebido
+   *   (pode ser menor ou maior que o previsto).
+   * - RECEBIDO TOTAL = sinal + recebido no fechamento. É esse valor que
+   *   forma o resultado da semana.
    */
-  const valorReceitaRecebida = (receita: Receita) => {
-    if (receita.status !== "recebido") return 0;
+  const receitasRealizadas = receitas.filter((receita) => {
+    if (!receita.confirmed || receita.status === "cancelado") return false;
+    const evento = eventos.find((item) => item.id === receita.event_id);
+    return evento?.status === "realizado";
+  });
 
-    const atual = Number(receita.actual_amount || 0);
-    return atual > 0
-      ? atual
-      : Number(receita.expected_amount || 0);
-  };
-
-  const receitasRealizadas = useMemo(
-    () =>
-      receitas.filter((receita) => {
-        if (!receita.confirmed || receita.status === "cancelado") return false;
-        const evento = eventos.find((item) => item.id === receita.event_id);
-        return evento?.status === "realizado";
-      }),
-    [receitas, eventos]
-  );
-
-  const totalPrevisto = useMemo(
-    () =>
-      receitasRealizadas.reduce(
-        (total, receita) => total + Number(receita.expected_amount || 0),
-        0
-      ),
-    [receitasRealizadas]
-  );
-
-  // VALOR CONFIRMADO = valor FINAL do evento.
-  // Se o valor foi alterado no recebimento, usamos actual_amount.
-  // Caso ainda não exista valor final, usamos o valor previsto.
-  // Isso mantém a distribuição baseada no valor real do show,
-  // e não somente no valor originalmente cadastrado.
-  const totalConfirmado = useMemo(
-    () =>
-      receitasRealizadas.reduce(
-        (total, receita) =>
-          total +
-          Number(
-            receita.actual_amount ||
-              receita.expected_amount ||
-              0
-          ),
-        0
-      ),
-    [receitasRealizadas]
-  );
-
-  // RECEBIDO = dinheiro efetivamente quitado nas receitas.
-  // Como o evento já foi marcado como recebido na tela de Eventos,
-  // usamos o valor final da receita, independentemente da semana/data
-  // em que as parcelas foram cadastradas.
-  const totalRecebido = useMemo(
-    () =>
-      receitasRealizadas.reduce(
-        (total, receita) =>
-          total + valorReceitaRecebida(receita),
-        0
-      ),
-    [receitasRealizadas]
-  );
-
-  const totalAReceber = Math.max(
-    totalConfirmado - totalRecebido,
+  const totalPrevisto = receitasRealizadas.reduce(
+    (total, receita) => total + Number(receita.expected_amount || 0),
     0
   );
+
+  const totalSinais = receitasRealizadas.reduce(
+    (total, receita) => total + sinalDaReceita(receita.id),
+    0
+  );
+
+  const totalRecebido = receitasRealizadas.reduce(
+    (total, receita) => total + recebidoDaReceita(receita),
+    0
+  );
+
+  // Gravado em weekly_closings.total_confirmed
+  const totalConfirmado = totalRecebido;
+
+  // Receitas ainda não recebidas: falta o previsto menos o sinal
+  const totalAReceber = receitasRealizadas
+    .filter((receita) => receita.status !== "recebido")
+    .reduce(
+      (total, receita) =>
+        total +
+        Math.max(Number(receita.expected_amount || 0) - sinalDaReceita(receita.id), 0),
+      0
+    );
 
   const totalMusicos = useMemo(() => {
     return musicosEventos
@@ -990,7 +1185,7 @@ export default function FechamentoPage() {
             evento.id === despesa.event_id
         );
 
-        return evento?.status === "realizado";
+        return evento?.status === "realizado" && !ehDesconto(despesa.notes);
       })
       .reduce(
         (total, item) =>
@@ -999,10 +1194,20 @@ export default function FechamentoPage() {
       );
   }, [despesas, eventos]);
 
+  // Descontos (consumo, empréstimo...) diminuem o que é pago às pessoas;
+  // o dinheiro fica com o grupo.
+  const totalDescontos = despesas
+    .filter((despesa) => {
+      const evento = eventos.find((e) => e.id === despesa.event_id);
+      return evento?.status === "realizado" && ehDesconto(despesa.notes);
+    })
+    .reduce((total, item) => total + Number(item.amount || 0), 0);
+
   const resultadoLiquido =
-    totalConfirmado -
+    totalRecebido -
     totalMusicos -
-    totalDespesas;
+    totalDespesas +
+    totalDescontos;
 
   const rodrigo =
     resultadoLiquido > 0
@@ -1013,6 +1218,46 @@ export default function FechamentoPage() {
     resultadoLiquido > 0
       ? resultadoLiquido / 4
       : 0;
+
+  // Despesas pagas pelos sócios (ex.: gasolina) voltam para eles
+  // junto com o pagamento da semana.
+  const despesasRealizadas = despesas.filter((despesa) => {
+    const evento = eventos.find((e) => e.id === despesa.event_id);
+    return evento?.status === "realizado";
+  });
+
+  // Reembolsos (+) e descontos (−) de cada sócio
+  const reembolsosRodrigo = ajustesDaPessoa(despesasRealizadas, "rodrigo");
+  const reembolsosMarlon = ajustesDaPessoa(despesasRealizadas, "marlon");
+
+  const rodrigoTotal = rodrigo + somaAjustes(reembolsosRodrigo);
+  const marlonTotal = marlon + somaAjustes(reembolsosMarlon);
+
+  function nomeMusico(id: string) {
+    return (
+      musicosEventos.find((m) => m.musician_id === id)?.musician_name ||
+      musicos.find((m) => m.id === id)?.name ||
+      "músico"
+    );
+  }
+
+  // Reembolsos (+) e descontos (−) do músico lançados neste evento
+  function reembolsosDoMusicoNoEvento(eventId: string, musicianId: string) {
+    return ajustesDaPessoa(
+      despesas.filter((d) => d.event_id === eventId),
+      musicianId
+    );
+  }
+
+  function detalheSocio(
+    valorSemana: number,
+    ajustes: { descricao: string; valor: number }[]
+  ) {
+    return detalharPagamento(valorSemana, "da semana", ajustes);
+  }
+
+  // Músicos que tocaram em algum evento desta semana
+  const musicosDaSemana = new Set(musicosEventos.map((m) => m.musician_id));
 
   const caixaGrupo =
     resultadoLiquido > 0
@@ -1056,7 +1301,7 @@ export default function FechamentoPage() {
 
           <a
             href="/"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:w-auto sm:px-4"
+            className="hidden w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:block sm:w-auto sm:px-4"
           >
             Voltar ao início
           </a>
@@ -1078,18 +1323,19 @@ export default function FechamentoPage() {
 
         {/* SEMANA */}
 
-        <section className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:mb-6 sm:p-5">
-          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <section className="mb-4 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm sm:p-4">
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
 
             <button
               onClick={() => mudarSemana(-1)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:w-auto sm:px-4"
+              title="Semana anterior"
+              className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:px-4"
             >
-              ← Semana anterior
+              ←<span className="hidden sm:inline"> Semana anterior</span>
             </button>
 
             <div className="text-center">
-              <p className="text-sm font-semibold text-slate-500">
+              <p className="text-[11px] font-semibold leading-tight text-slate-500 sm:text-xs">
                 Semana
               </p>
 
@@ -1098,19 +1344,24 @@ export default function FechamentoPage() {
                 {dataBR(semanaFim)}
               </p>
 
+              <p className="text-[11px] leading-tight text-slate-500 sm:text-xs">
+                Terça a segunda · fecha na segunda {dataBR(semanaFim)}
+              </p>
+
               <button
                 onClick={voltarSemanaAtual}
                 className="mt-1 text-xs font-semibold text-blue-600"
               >
-                Ir para semana atual
+                Ir para a semana a fechar
               </button>
             </div>
 
             <button
               onClick={() => mudarSemana(1)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:w-auto sm:px-4"
+              title="Próxima semana"
+              className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold sm:px-4"
             >
-              Próxima semana →
+              <span className="hidden sm:inline">Próxima semana </span>→
             </button>
 
           </div>
@@ -1118,15 +1369,15 @@ export default function FechamentoPage() {
 
         {/* RESUMO */}
 
-        <section className="mb-4 grid grid-cols-2 gap-2 sm:mb-6 sm:gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <section className="mb-4 grid grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-5">
 
           <Card
-            titulo="Confirmado"
-            valor={moeda(totalConfirmado)}
+            titulo="Previsto (cobrado)"
+            valor={moeda(totalPrevisto)}
           />
 
           <Card
-            titulo="Recebido"
+            titulo={`Recebido${totalSinais > 0 ? ` (sinais ${moeda(totalSinais)})` : ""}`}
             valor={moeda(totalRecebido)}
           />
 
@@ -1141,7 +1392,7 @@ export default function FechamentoPage() {
           />
 
           <Card
-            titulo="Despesas"
+            titulo={totalDescontos > 0 ? `Despesas (descontos ${moeda(totalDescontos)})` : "Despesas"}
             valor={moeda(totalDespesas)}
           />
 
@@ -1149,51 +1400,61 @@ export default function FechamentoPage() {
 
         {/* RESULTADO */}
 
-        <section id="resultado-semana" className="mb-4 rounded-xl bg-slate-900 p-4 text-white shadow-sm sm:mb-6 sm:p-6">
+        <section id="resultado-semana" className="mb-4 rounded-xl bg-slate-900 p-3 text-white shadow-sm sm:p-4">
 
-          <div className="mb-6">
+          <div className="mb-3">
             <p className="text-sm text-slate-400">
               Resultado líquido da semana
             </p>
 
-            <p className="mt-1 text-3xl font-bold sm:text-4xl">
+            <p className="mt-1 text-2xl font-bold sm:text-3xl">
               {moeda(resultadoLiquido)}
             </p>
 
-            <p className="mt-2 text-sm text-slate-400">
-              Receitas confirmadas − cachês dos
-              músicos − despesas dos eventos
+            <p className="mt-1 text-xs text-slate-400">
+              Valor realmente recebido (sinal + restante) − cachês dos
+              músicos − despesas dos eventos + descontos
             </p>
           </div>
 
-          <div className="grid gap-2 sm:gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
 
-            <div className="rounded-xl bg-white/10 p-3 sm:p-5">
-              <p className="text-sm text-slate-300">
+            <div className="rounded-xl bg-white/10 p-2.5 sm:p-3">
+              <p className="text-[11px] leading-tight text-slate-300 sm:text-sm">
                 Rodrigo — 1/4
               </p>
 
-              <p className="mt-1 text-2xl font-bold">
-                {moeda(rodrigo)}
+              <p className="mt-1 text-base sm:text-xl font-bold">
+                {moeda(rodrigoTotal)}
               </p>
+              {detalheSocio(rodrigo, reembolsosRodrigo) && (
+                <p className="mt-1 text-[10px] leading-tight text-slate-300 sm:text-xs">
+                  {detalheSocio(rodrigo, reembolsosRodrigo)}
+                </p>
+              )}
             </div>
 
-            <div className="rounded-xl bg-white/10 p-3 sm:p-5">
-              <p className="text-sm text-slate-300">
+            <div className="rounded-xl bg-white/10 p-2.5 sm:p-3">
+              <p className="text-[11px] leading-tight text-slate-300 sm:text-sm">
                 Marlon — 1/4
               </p>
 
-              <p className="mt-1 text-2xl font-bold">
-                {moeda(marlon)}
+              <p className="mt-1 text-base sm:text-xl font-bold">
+                {moeda(marlonTotal)}
               </p>
+              {detalheSocio(marlon, reembolsosMarlon) && (
+                <p className="mt-1 text-[10px] leading-tight text-slate-300 sm:text-xs">
+                  {detalheSocio(marlon, reembolsosMarlon)}
+                </p>
+              )}
             </div>
 
-            <div className="rounded-xl bg-white/10 p-3 sm:p-5">
-              <p className="text-sm text-slate-300">
+            <div className="rounded-xl bg-white/10 p-2.5 sm:p-3">
+              <p className="text-[11px] leading-tight text-slate-300 sm:text-sm">
                 Caixa do grupo — 2/4
               </p>
 
-              <p className="mt-1 text-2xl font-bold">
+              <p className="mt-1 text-base sm:text-xl font-bold">
                 {moeda(caixaGrupo)}
               </p>
             </div>
@@ -1448,12 +1709,8 @@ export default function FechamentoPage() {
                                 <p className="font-extrabold text-emerald-700">
                                   {moeda(
                                     receitasEvento
-                                      .filter((r) => r.confirmed && r.status === "recebido")
-                                      .reduce(
-                                        (s, r) =>
-                                          s + Number(r.actual_amount || r.expected_amount || 0),
-                                        0
-                                      )
+                                      .filter((r) => r.confirmed && r.status !== "cancelado")
+                                      .reduce((s, r) => s + recebidoDaReceita(r), 0)
                                   )}
                                 </p>
                               </div>
@@ -1467,13 +1724,13 @@ export default function FechamentoPage() {
                               </div>
                             ) : (
                               <>
-                                <div className="hidden grid-cols-[1.45fr_0.9fr_0.95fr_1fr_1fr_0.8fr] items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500 lg:grid">
+                                <div className="hidden grid-cols-[1.45fr_0.9fr_0.8fr_1.05fr_1fr_1fr] items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500 lg:grid">
                                   <div>Descrição</div>
                                   <div>Valor previsto</div>
-                                  <div>Valor recebido</div>
+                                  <div>Sinal recebido</div>
+                                  <div>Recebido no fechamento</div>
                                   <div>Aconteceu?</div>
                                   <div>Status</div>
-                                  <div>No caixa</div>
                                 </div>
 
                                 <div className="divide-y divide-slate-100">
@@ -1482,7 +1739,7 @@ export default function FechamentoPage() {
                                       key={receita.id}
                                       className="p-3 hover:bg-slate-50/60 sm:p-4"
                                     >
-                                      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1.45fr_0.9fr_0.95fr_1fr_1fr_0.8fr] lg:items-center lg:gap-3">
+                                      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1.45fr_0.9fr_0.8fr_1.05fr_1fr_1fr] lg:items-center lg:gap-3">
                                         <div>
                                           <p className="font-bold text-slate-800">
                                             {receita.description}
@@ -1503,12 +1760,23 @@ export default function FechamentoPage() {
 
                                         <div>
                                           <span className="mb-1 block text-[10px] font-bold uppercase text-slate-500 lg:hidden">
-                                            Valor recebido
+                                            Sinal recebido
+                                          </span>
+                                          <p className={`font-bold ${sinalDaReceita(receita.id) > 0 ? "text-emerald-700" : "text-slate-400"}`}>
+                                            {sinalDaReceita(receita.id) > 0
+                                              ? moeda(sinalDaReceita(receita.id))
+                                              : "Sem sinal"}
+                                          </p>
+                                        </div>
+
+                                        <div>
+                                          <span className="mb-1 block text-[10px] font-bold uppercase text-slate-500 lg:hidden">
+                                            Recebido no fechamento
                                           </span>
                                           <input
                                             type="number"
                                             step="0.01"
-                                            value={receita.actual_amount || ""}
+                                            value={valoresFechamento[receita.id] || ""}
                                             onChange={(e) =>
                                               alterarValorReceita(
                                                 receita,
@@ -1516,7 +1784,7 @@ export default function FechamentoPage() {
                                               )
                                             }
                                             disabled={!receita.confirmed}
-                                            placeholder="0,00"
+                                            placeholder={`Falta ${moeda(Math.max(receita.expected_amount - sinalDaReceita(receita.id), 0))}`}
                                             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500 disabled:bg-slate-100"
                                           />
                                         </div>
@@ -1586,28 +1854,19 @@ export default function FechamentoPage() {
                                           </select>
                                         </div>
 
-                                        <div>
-                                          <span className="mb-1 block text-[10px] font-bold uppercase text-slate-500 lg:hidden">
-                                            No caixa
-                                          </span>
-                                          {receita.status === "recebido" &&
-                                          receita.confirmed ? (
-                                            <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-700">
-                                              ✓ Lançado
-                                            </span>
-                                          ) : (
-                                            <span className="inline-flex rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
-                                              A receber
-                                            </span>
-                                          )}
-                                        </div>
                                       </div>
 
                                       <div className="mt-2 rounded-lg bg-slate-50 px-2 py-2 text-[11px] text-slate-500 sm:mt-3 sm:px-3 sm:text-xs">
                                         {receita.confirmed
                                           ? receita.status === "recebido"
-                                            ? "Receita confirmada e recebida. O valor foi lançado automaticamente no Caixa."
-                                            : "Receita confirmada, mas ainda pendente de recebimento."
+                                            ? `Total recebido: ${moeda(recebidoDaReceita(receita))}${
+                                                sinalDaReceita(receita.id) > 0
+                                                  ? ` (sinal ${moeda(sinalDaReceita(receita.id))} + fechamento ${moeda(restoDaReceita(receita))})`
+                                                  : ""
+                                              }. Entra no Caixa ao salvar o fechamento.`
+                                            : sinalDaReceita(receita.id) > 0
+                                              ? `Sinal de ${moeda(sinalDaReceita(receita.id))} já está no Caixa. Digite quanto recebeu do restante.`
+                                              : "Digite em \"Recebido no fechamento\" quanto você realmente recebeu."
                                           : "Receita marcada como não acontecida. Não entra no resultado da semana."}
                                       </div>
                                     </div>
@@ -1740,11 +1999,11 @@ export default function FechamentoPage() {
                                     <th className="px-2 py-2 sm:px-3 sm:py-3">
                                       Cachê
                                     </th>
-                                    <th className="px-2 py-2 sm:px-3 sm:py-3">
+                                    <th className="hidden px-2 py-2 sm:table-cell sm:px-3 sm:py-3">
                                       Pagamento
                                     </th>
-                                    <th className="px-2 py-2 sm:px-3 sm:py-3">
-                                      Ação
+                                    <th className="px-2 py-2 text-right sm:px-3 sm:py-3 sm:text-left">
+                                      <span className="sr-only sm:not-sr-only">Ação</span>
                                     </th>
                                   </tr>
                                 </thead>
@@ -1756,19 +2015,36 @@ export default function FechamentoPage() {
                                         key={musico.id}
                                         className="border-t border-slate-100"
                                       >
-                                        <td className="px-3 py-3 font-semibold">
+                                        <td className="px-2 py-2 font-semibold sm:px-3 sm:py-3">
                                           {
                                             musico.musician_name
                                           }
+                                          <span
+                                            className={`mt-1 block w-fit rounded-full px-2 py-0.5 text-[10px] font-bold sm:hidden ${
+                                              musico.payment_status === "pago"
+                                                ? "bg-green-100 text-green-700"
+                                                : "bg-yellow-100 text-yellow-700"
+                                            }`}
+                                          >
+                                            {musico.payment_status === "pago" ? "Pago" : "Pago ao salvar"}
+                                          </span>
                                         </td>
 
                                         <td className="px-2 py-2 sm:px-3 sm:py-3">
                                           {moeda(
                                             musico.event_cache
                                           )}
+                                          {reembolsosDoMusicoNoEvento(musico.event_id, musico.musician_id).map((r, i) => (
+                                            <span
+                                              key={i}
+                                              className={`block text-xs font-semibold ${r.valor >= 0 ? "text-amber-700" : "text-red-600"}`}
+                                            >
+                                              {r.valor >= 0 ? "+" : "−"} {moeda(Math.abs(r.valor))} de {r.descricao.toLowerCase()}
+                                            </span>
+                                          ))}
                                         </td>
 
-                                        <td className="px-2 py-2 sm:px-3 sm:py-3">
+                                        <td className="hidden px-2 py-2 sm:table-cell sm:px-3 sm:py-3">
                                           <span
                                             className={`rounded-full px-2 py-1 text-xs font-bold ${
                                               musico.payment_status ===
@@ -1780,29 +2056,18 @@ export default function FechamentoPage() {
                                             {musico.payment_status ===
                                             "pago"
                                               ? "Pago"
-                                              : "Pendente"}
+                                              : "Pago ao salvar"}
                                           </span>
                                         </td>
 
-                                        <td className="px-2 py-2 sm:px-3 sm:py-3">
-                                          <button
-                                            onClick={() =>
-                                              alterarPagamento(
-                                                musico
-                                              )
-                                            }
-                                            className="rounded-lg bg-slate-100 px-2 py-2 text-[11px] font-bold sm:px-3 sm:text-xs"
-                                          >
-                                            {musico.payment_status ===
-                                            "pago"
-                                              ? "Voltar pendente"
-                                              : "Marcar pago"}
-                                          </button> 
+                                        <td className="px-2 py-2 text-right sm:px-3 sm:py-3 sm:text-left">
                                           <button
                                             onClick={() => removerMusicoDoEvento(musico)}
-                                            className="mt-2 rounded-lg bg-red-50 px-2 py-2 text-[11px] font-bold text-red-700 sm:ml-2 sm:mt-0 sm:px-3 sm:text-xs"
+                                            title="Remover do evento"
+                                            className="rounded-lg bg-red-50 px-2.5 py-2 text-xs font-bold text-red-700 sm:px-3"
                                           >
-                                            Remover
+                                            <span className="sm:hidden">✕</span>
+                                            <span className="hidden sm:inline">Remover</span>
                                           </button>
                                         </td>
                                       </tr>
@@ -1819,12 +2084,12 @@ export default function FechamentoPage() {
                         <div id={`despesas-${evento.id}`}>
                           <div className="mb-3 flex items-center justify-between">
                             <h4 className="font-bold">
-                              Despesas deste evento
+                              Despesas e descontos deste evento
                             </h4>
 
                             <span className="text-sm font-bold text-red-600">
                               {moeda(
-                                despesasEvento.reduce(
+                                despesasEvento.filter((d) => !ehDesconto(d.notes)).reduce(
                                   (total, item) =>
                                     total +
                                     Number(
@@ -1857,21 +2122,32 @@ export default function FechamentoPage() {
                                         }
                                       </p>
 
-                                      {despesa.notes && (
+                                      {descreverAjuste(despesa.notes, nomeMusico) && (
+                                        <p
+                                          className={`text-xs font-semibold ${ehDesconto(despesa.notes) ? "text-red-600" : "text-amber-700"}`}
+                                        >
+                                          {ehDesconto(despesa.notes) ? "Desconto: " : "Reembolso: "}
+                                          {descreverAjuste(despesa.notes, nomeMusico)}
+                                        </p>
+                                      )}
+
+                                      {textoSemTag(despesa.notes) && (
                                         <p className="text-xs text-slate-500">
-                                          {
-                                            despesa.notes
-                                          }
+                                          {textoSemTag(despesa.notes)}
                                         </p>
                                       )}
                                     </div>
 
                                     <div className="flex items-center gap-2 sm:gap-3">
-                                      <strong className="text-red-600">
-                                        {moeda(
-                                          despesa.amount
-                                        )}
-                                      </strong>
+                                      {ehDesconto(despesa.notes) ? (
+                                        <strong className="text-emerald-700" title="Descontado do pagamento; fica no caixa do grupo">
+                                          − {moeda(despesa.amount)}
+                                        </strong>
+                                      ) : (
+                                        <strong className="text-red-600">
+                                          {moeda(despesa.amount)}
+                                        </strong>
+                                      )}
 
                                       <button
                                         onClick={() =>
@@ -1906,10 +2182,10 @@ export default function FechamentoPage() {
                                     .filter((r) => r.confirmed)
                                     .reduce(
                                       (s, r) =>
-                                        s + Number(r.actual_amount || r.expected_amount || 0),
+                                        s + recebidoDaReceita(r),
                                       0
                                     ) -
-                                    despesasEvento.reduce(
+                                    despesasEvento.filter((d) => !ehDesconto(d.notes)).reduce(
                                       (s, d) => s + Number(d.amount || 0),
                                       0
                                     )
@@ -1919,14 +2195,14 @@ export default function FechamentoPage() {
 
                             <div className="text-right text-sm">
                               <p className="text-slate-600">
-                                Receitas confirmadas:{" "}
+                                Recebido:{" "}
                                 <strong>
                                   {moeda(
                                     receitasEvento
                                       .filter((r) => r.confirmed)
                                       .reduce(
                                         (s, r) =>
-                                          s + Number(r.actual_amount || r.expected_amount || 0),
+                                          s + recebidoDaReceita(r),
                                         0
                                       )
                                   )}
@@ -1936,7 +2212,7 @@ export default function FechamentoPage() {
                                 Despesas:{" "}
                                 <strong className="text-red-600">
                                   {moeda(
-                                    despesasEvento.reduce(
+                                    despesasEvento.filter((d) => !ehDesconto(d.notes)).reduce(
                                       (s, d) => s + Number(d.amount || 0),
                                       0
                                     )
@@ -1959,20 +2235,52 @@ export default function FechamentoPage() {
 
         </section>
 
-        {/* NOVA DESPESA */}
+        {/* NOVA DESPESA / DESCONTO */}
 
         <section className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:mb-6 sm:p-5">
 
           <h2 className="text-base font-bold sm:text-xl">
-            Adicionar despesa de evento
+            Despesas e descontos
           </h2>
 
-          <p className="mb-5 mt-1 text-sm text-slate-500">
-            Ex.: alimentação, gasolina, pedágio,
-            estacionamento ou qualquer outro custo.
+          <p className="mb-4 mt-1 text-sm text-slate-500">
+            Reembolso: gasolina, alimentação, pedágio… (soma no pagamento de quem recebeu).
+            Desconto: consumo no bar, empréstimo… (desconta do pagamento da pessoa).
           </p>
 
-          <div className="grid gap-2 sm:gap-4 md:grid-cols-3">
+          {/* TIPO */}
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setTipoDespesa("reembolso");
+                setPessoasDespesa({});
+              }}
+              className={`rounded-lg border p-3 text-sm font-bold ${
+                tipoDespesa === "reembolso"
+                  ? "border-red-500 bg-red-50 text-red-700"
+                  : "bg-white text-slate-600"
+              }`}
+            >
+              💸 Despesa / reembolso
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTipoDespesa("desconto");
+                setPessoasDespesa({});
+              }}
+              className={`rounded-lg border p-3 text-sm font-bold ${
+                tipoDespesa === "desconto"
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                  : "bg-white text-slate-600"
+              }`}
+            >
+              ➖ Desconto (consumo, empréstimo…)
+            </button>
+          </div>
+
+          <div className="grid gap-2 sm:gap-4 md:grid-cols-2">
 
             <div>
               <label className="mb-1 block text-sm font-semibold">
@@ -2018,40 +2326,121 @@ export default function FechamentoPage() {
                     e.target.value
                   )
                 }
-                placeholder="Ex.: Gasolina"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 sm:py-3"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-semibold">
-                Valor
-              </label>
-
-              <input
-                type="number"
-                step="0.01"
-                value={valorDespesa}
-                onChange={(e) =>
-                  setValorDespesa(
-                    e.target.value
-                  )
+                placeholder={
+                  tipoDespesa === "desconto"
+                    ? "Ex.: Consumo no bar"
+                    : "Ex.: Gasolina"
                 }
-                placeholder="0,00"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 sm:py-3"
               />
             </div>
 
           </div>
 
-          <div className="mt-4 flex justify-end">
+          {/* PESSOAS */}
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-semibold">
+              {tipoDespesa === "desconto"
+                ? "De quem descontar e quanto"
+                : "Quem recebeu e quanto"}
+            </label>
+
+            <div className="grid gap-1 rounded-xl border p-2 sm:grid-cols-2 sm:gap-2 sm:p-3 lg:grid-cols-3">
+              {[
+                ...(tipoDespesa === "reembolso"
+                  ? [{ chave: "outro", nome: "Outra pessoa / posto", info: "sai do caixa como despesa", ativo: true }]
+                  : []),
+                { chave: "rodrigo", nome: "Rodrigo", info: "sócio", ativo: true },
+                { chave: "marlon", nome: "Marlon", info: "sócio", ativo: true },
+                // Só músicos que tocaram nesta semana (eles são pagos nela)
+                ...musicos
+                  .filter((m) => musicosDaSemana.has(m.id))
+                  .map((m) => ({
+                    chave: m.id,
+                    nome: m.name,
+                    info: "músico",
+                    ativo: true,
+                  })),
+              ].map((pessoa) => {
+                const marcado = pessoa.chave in pessoasDespesa;
+
+                return (
+                  <div
+                    key={pessoa.chave}
+                    className={`flex items-center gap-2 rounded-lg p-2 ${
+                      marcado ? "bg-slate-50 ring-1 ring-slate-300" : ""
+                    } ${pessoa.ativo ? "" : "opacity-40"}`}
+                  >
+                    <label className="flex flex-1 cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        disabled={!pessoa.ativo}
+                        checked={marcado}
+                        onChange={(e) => {
+                          setPessoasDespesa((atual) => {
+                            const novo = { ...atual };
+                            if (e.target.checked) novo[pessoa.chave] = "";
+                            else delete novo[pessoa.chave];
+                            return novo;
+                          });
+                        }}
+                      />
+                      <span className="text-sm">
+                        <span className="font-semibold">{pessoa.nome}</span>
+                        <span className="block text-[11px] text-slate-400">{pessoa.info}</span>
+                      </span>
+                    </label>
+
+                    {marcado && (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        autoFocus
+                        value={pessoasDespesa[pessoa.chave]}
+                        onChange={(e) =>
+                          setPessoasDespesa((atual) => ({
+                            ...atual,
+                            [pessoa.chave]: e.target.value,
+                          }))
+                        }
+                        placeholder="0,00"
+                        className="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-right text-sm font-semibold"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="mt-2 text-xs text-slate-500">
+              {tipoDespesa === "desconto"
+                ? "O valor é descontado do pagamento da pessoa nesta semana e fica no caixa do grupo."
+                : "O valor de cada pessoa do grupo é somado ao pagamento dela na semana e sai do caixa quando ela for paga."}
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+            <span className="text-sm text-slate-600">
+              Total:{" "}
+              <strong>
+                {moeda(
+                  Object.values(pessoasDespesa).reduce(
+                    (s, v) => s + numeroBR(v),
+                    0
+                  )
+                )}
+              </strong>
+            </span>
+
             <button
               onClick={salvarDespesa}
               disabled={salvandoDespesa}
-              className="rounded-lg bg-red-600 px-5 py-3 font-bold text-white disabled:opacity-50"
+              className={`rounded-lg px-5 py-3 font-bold text-white disabled:opacity-50 ${
+                tipoDespesa === "desconto" ? "bg-emerald-600" : "bg-red-600"
+              }`}
             >
-              {salvandoDespesa
-                ? "Salvando..."
+              {tipoDespesa === "desconto"
+                ? "+ Adicionar desconto"
                 : "+ Adicionar despesa"}
             </button>
           </div>
@@ -2220,8 +2609,13 @@ export default function FechamentoPage() {
                 <div>
                   <p className="font-bold">Rodrigo</p>
                   <p className="text-lg font-bold text-slate-800">
-                    {moeda(rodrigo)}
+                    {moeda(rodrigoTotal)}
                   </p>
+                  {detalheSocio(rodrigo, reembolsosRodrigo) && (
+                    <p className="text-xs text-slate-500">
+                      {detalheSocio(rodrigo, reembolsosRodrigo)}
+                    </p>
+                  )}
                 </div>
 
                 <button
@@ -2244,8 +2638,13 @@ export default function FechamentoPage() {
                 <div>
                   <p className="font-bold">Marlon</p>
                   <p className="text-lg font-bold text-slate-800">
-                    {moeda(marlon)}
+                    {moeda(marlonTotal)}
                   </p>
+                  {detalheSocio(marlon, reembolsosMarlon) && (
+                    <p className="text-xs text-slate-500">
+                      {detalheSocio(marlon, reembolsosMarlon)}
+                    </p>
+                  )}
                 </div>
 
                 <button
@@ -2294,12 +2693,12 @@ function Card({
   valor: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5">
-      <p className="text-sm font-semibold text-slate-500">
+    <div className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm sm:p-3">
+      <p className="text-[11px] font-semibold leading-tight text-slate-500 sm:text-xs">
         {titulo}
       </p>
 
-      <p className="mt-1 text-xl font-bold text-slate-800 sm:mt-2 sm:text-2xl">
+      <p className="mt-1 text-sm font-bold text-slate-800 sm:text-lg">
         {valor}
       </p>
     </div>

@@ -2,6 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { lerObservacoes, montarObservacoes, linkTelefone, textoHorario } from "@/lib/contato";
+
+/*
+ * EVENTOS
+ *
+ * Cadastro e edição dos eventos: nome, data, horário, local, valor cobrado,
+ * sinal (valor + data em que foi recebido), data prevista do restante
+ * (ou do recebimento total, quando não há sinal) e contato do responsável.
+ *
+ * O fechamento do evento, os músicos e o recebimento do restante ficam na
+ * aba Fechamento. Tudo é sincronizado com a Agenda do Google.
+ */
 
 type Template = {
   id: string;
@@ -21,3393 +33,1251 @@ type Evento = {
   event_time: string | null;
   location: string | null;
   expected_amount: number;
-  actual_amount: number | null;
   expected_receipt_date: string | null;
-  actual_receipt_date: string | null;
   status: string;
   notes: string | null;
 };
 
-type ReceitaEvento = {
+type Receita = {
   id: string;
+  event_id: string;
   description: string;
   expected_amount: number;
   actual_amount: number;
-  confirmed: boolean;
-  status: "pendente" | "parcial" | "recebido" | "cancelado";
-  expected_receipt_date: string | null;
-  actual_receipt_date: string | null;
-  notes: string | null;
+  status: string;
 };
-type RecebimentoParcela = {
-  id?: string;
+
+type Parcela = {
+  id: string;
   event_revenue_id: string;
   description: string;
   expected_amount: number;
   actual_amount: number;
   expected_receipt_date: string | null;
   actual_receipt_date: string | null;
-  status: "pendente" | "recebido" | "cancelado";
-  payment_method: string;
-  notes: string;
-};
-
-type Musico = {
-  id: string;
-  name: string;
-  type: string;
-  cache: number;
-  pix: string;
-  active: boolean;
-  instrumentos: Instrumento[];
-};
-
-type Instrumento = {
-  id: string;
-  name: string;
-};
-
-type MusicoEvento = {
-  id: string;
-  musician_id: string;
-  musician_name: string;
-  default_cache: number;
-  use_default_cache: boolean;
-  event_cache: number;
-  instrumentos: Instrumento[];
-  instrumentosSelecionados: string[];
-  payment_status: "pendente" | "pago";
-  payment_date: string | null;
-  payment_method: string | null;
-  payment_notes: string | null;
+  status: string;
 };
 
 function moeda(valor: number) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function textoDiaSemana(weekday: number) {
-  const dias = [
-    "Todo domingo",
-    "Toda segunda-feira",
-    "Toda terça-feira",
-    "Toda quarta-feira",
-    "Toda quinta-feira",
-    "Toda sexta-feira",
-    "Todo sábado",
-  ];
-
-  return dias[weekday] || "Dia não definido";
+function numero(valor: string) {
+  const s = String(valor || "").trim();
+  if (!s) return 0;
+  const n = Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s);
+  return Number.isFinite(n) ? n : NaN;
 }
+
+function dataBR(data: string | null | undefined) {
+  if (!data) return "-";
+  const [ano, mes, dia] = String(data).slice(0, 10).split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+function hojeISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function adicionarDias(data: string, dias: number) {
+  const [a, m, d] = data.split("-").map(Number);
+  const dt = new Date(a, m - 1, d);
+  dt.setDate(dt.getDate() + dias);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
+function diaSemana(data: string) {
+  const [a, m, d] = data.split("-").map(Number);
+  return new Date(a, m - 1, d).getDay();
+}
+
+function ehSinal(descricao: string) {
+  const d = String(descricao || "").trim().toLowerCase();
+  return d === "sinal" || d.startsWith("sinal ");
+}
+
+const DIAS = ["Todo domingo", "Toda segunda", "Toda terça", "Toda quarta", "Toda quinta", "Toda sexta", "Todo sábado"];
+
+const STATUS: Record<string, { rotulo: string; classe: string }> = {
+  agendado: { rotulo: "Agendado", classe: "bg-blue-100 text-blue-700" },
+  realizado: { rotulo: "Realizado", classe: "bg-green-100 text-green-700" },
+  nao_realizado: { rotulo: "Não realizado", classe: "bg-red-100 text-red-700" },
+};
+
+const FORM_VAZIO = {
+  templateId: "",
+  nome: "",
+  data: "",
+  horario: "",
+  termino: "",
+  local: "",
+  valor: "",
+  sinal: "",
+  dataSinal: "",
+  dataRestante: "",
+  responsavel: "",
+  telefone: "",
+  observacoes: "",
+};
 
 export default function EventosPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [eventos, setEventos] = useState<Evento[]>([]);
-  const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear());
-  const [buscaEvento, setBuscaEvento] = useState("");
-  const [mostrarArquivados, setMostrarArquivados] = useState(false);
+  const [receitas, setReceitas] = useState<Receita[]>([]);
+  const [parcelas, setParcelas] = useState<Parcela[]>([]);
 
-  const [mostrarFormulario, setMostrarFormulario] = useState(false);
-  const formularioRef = useRef<HTMLElement | null>(null);
-  const [eventoEditando, setEventoEditando] = useState<Evento | null>(null);
+  const [ano, setAno] = useState(new Date().getFullYear());
+  const [busca, setBusca] = useState("");
+  const [verRealizados, setVerRealizados] = useState(false);
 
-  const [nome, setNome] = useState("");
-  const [dataEvento, setDataEvento] = useState("");
-  const [horarioEvento, setHorarioEvento] = useState("");
-  const [local, setLocal] = useState("");
-  const [valorPrevisto, setValorPrevisto] = useState("");
-  const [valorTotalEvento, setValorTotalEvento] = useState("");
-  const [valorSinal, setValorSinal] = useState("");
-  const [dataPagamentoSinal, setDataPagamentoSinal] = useState("");
-  const [dataPagamentoSaldo, setDataPagamentoSaldo] = useState("");
-  const [dataRecebimento, setDataRecebimento] = useState("");
-  const [observacoes, setObservacoes] = useState("");
-  const [templateSelecionado, setTemplateSelecionado] = useState("");
+  const [formAberto, setFormAberto] = useState(false);
+  const [editando, setEditando] = useState<Evento | null>(null);
+  const [form, setForm] = useState(FORM_VAZIO);
+  const [salvando, setSalvando] = useState(false);
+  const formRef = useRef<HTMLElement | null>(null);
 
-  const [carregando, setCarregando] = useState(false);
-    const [musicos, setMusicos] = useState<Musico[]>([]);
-  const [instrumentos, setInstrumentos] = useState<Instrumento[]>([]);
+  const [mensagem, setMensagem] = useState("");
+  const [erro, setErro] = useState("");
+  const [gerando, setGerando] = useState(false);
 
-  const [eventoSelecionado, setEventoSelecionado] =
-    useState<Evento | null>(null);
-
-  const [musicosEvento, setMusicosEvento] =
-    useState<MusicoEvento[]>([]);
-
-  const [mostrarMusicos, setMostrarMusicos] =
-    useState(false);
-
-  const [salvandoMusicos, setSalvandoMusicos] =
-    useState(false);
-  const [eventoFechando, setEventoFechando] = useState<Evento | null>(null);
-  const [receitasFechamento, setReceitasFechamento] = useState<ReceitaEvento[]>([]);
-  const [salvandoFechamento, setSalvandoFechamento] = useState(false);
-
-  const [eventoRecebimentos, setEventoRecebimentos] = useState<Evento | null>(null);
-  const [recebimentosParcelas, setRecebimentosParcelas] = useState<RecebimentoParcela[]>([]);
-  const [salvandoRecebimentos, setSalvandoRecebimentos] = useState(false);
-  const recebimentosRef = useRef<HTMLElement | null>(null);
-
-  const [gerandoRecorrencias, setGerandoRecorrencias] = useState(false);
-  const [mensagemRecorrencia, setMensagemRecorrencia] = useState("");
-
-  function nomePadraoEvento(nome: string) {
-    const chave = nome.trim().toLowerCase();
-
-    if (chave === "lapa" || chave === "pagode na lapa") {
-      return "Pagode na Lapa";
-    }
-
-    if (
-      chave === "miami" ||
-      chave === "domingueira do miami"
-    ) {
-      return "Domingueira do Miami";
-    }
-
-    return nome;
-  }
-
-  function localPadraoEvento(nome: string, local: string | null) {
-    const chave = nome.trim().toLowerCase();
-
-    if (chave === "lapa" || chave === "pagode na lapa") {
-      return "Lapa Beer";
-    }
-
-    if (
-      chave === "miami" ||
-      chave === "domingueira do miami"
-    ) {
-      return "Miami JF";
-    }
-
-    return local || "";
-  }
-
-  const eventosDoAno = useMemo(() => {
-    const busca = buscaEvento.trim().toLowerCase();
-
-    return eventos
-      .filter(
-        (evento) =>
-          Number(evento.event_date.slice(0, 4)) === anoSelecionado
-      )
-      .filter((evento) => {
-        const statusNormalizado = String(evento.status || "")
-          .trim()
-          .toLowerCase();
-
-        return mostrarArquivados
-          ? statusNormalizado === "realizado"
-          : statusNormalizado !== "realizado";
-      })
-      .filter((evento) => {
-        if (!busca) return true;
-
-        const texto = [
-          evento.name,
-          evento.location || "",
-          evento.event_date,
-          formatarData(evento.event_date),
-          evento.status || "",
-        ]
-          .join(" ")
-          .toLowerCase();
-
-        return texto.includes(busca);
-      })
-      .sort((a, b) => {
-        const dataA = `${a.event_date}T${a.event_time || "00:00"}`;
-        const dataB = `${b.event_date}T${b.event_time || "00:00"}`;
-        return dataA.localeCompare(dataB);
-      });
-  }, [eventos, anoSelecionado, buscaEvento, mostrarArquivados]);
-
-  const quantidadeArquivadosDoAno = useMemo(() => {
-    return eventos.filter((evento) => {
-      const statusNormalizado = String(evento.status || "")
-        .trim()
-        .toLowerCase();
-
-      return (
-        Number(evento.event_date.slice(0, 4)) === anoSelecionado &&
-        statusNormalizado === "realizado"
-      );
-    }).length;
-  }, [eventos, anoSelecionado]);
-
-  const anosDisponiveis = useMemo(() => {
-    const atual = new Date().getFullYear();
-    const anos = new Set<number>([
-      atual - 1,
-      atual,
-      atual + 1,
-      ...eventos.map((evento) =>
-        Number(evento.event_date.slice(0, 4))
-      ),
-    ]);
-
-    return Array.from(anos).sort((a, b) => a - b);
-  }, [eventos]);
-
-  useEffect(() => {
-    async function inicializar() {
-      const modelos = await carregarTemplates();
-
-      await Promise.all([
-        carregarEventos(),
-        carregarMusicos(),
-        carregarInstrumentos(),
-      ]);
-
-      if (modelos.length > 0) {
-        await gerarProximasOcorrencias(modelos);
-      }
-    }
-
-    inicializar();
-  }, []);
-
-  useEffect(() => {
-    if (templates.length === 0) return;
-
-    /*
-     * Mantém sempre as próximas 5 ocorrências recorrentes
-     * cadastradas automaticamente. Isso vale para o ano atual
-     * e também quando o usuário consulta um ano futuro.
-     */
-    gerarProximasOcorrencias(
-      templates,
-      anoSelecionado
-    ).then(() => carregarEventos());
-  }, [anoSelecionado, templates.length]);
-
+  // ---------------------------------------------------------
+  // CARREGAMENTO
+  // ---------------------------------------------------------
   async function carregarTemplates(): Promise<Template[]> {
     const { data, error } = await supabase
       .from("recurring_event_templates")
       .select("*")
       .eq("active", true)
       .order("weekday");
-
     if (error) {
       console.error(error);
       return [];
     }
-
-    const lista = data || [];
-    setTemplates(lista);
-    return lista;
-  }
-
-  function dataHojeISO() {
-    const hoje = new Date();
-    const ano = hoje.getFullYear();
-    const mes = String(hoje.getMonth() + 1).padStart(2, "0");
-    const dia = String(hoje.getDate()).padStart(2, "0");
-    return `${ano}-${mes}-${dia}`;
-  }
-
-  function adicionarDias(data: string, dias: number) {
-    const partes = data.split("-").map(Number);
-    const d = new Date(partes[0], partes[1] - 1, partes[2]);
-    d.setDate(d.getDate() + dias);
-
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }
-
-  function diaSemana(data: string) {
-    const [ano, mes, dia] = data.split("-").map(Number);
-    return new Date(ano, mes - 1, dia).getDay();
-  }
-
-  async function gerarProximasOcorrencias(
-    modelos = templates,
-    anoAlvo?: number
-  ) {
-    if (modelos.length === 0) return;
-
-    setGerandoRecorrencias(true);
-    setMensagemRecorrencia("");
-
-    try {
-      const hoje = dataHojeISO();
-      const anoAtual = new Date().getFullYear();
-
-      /*
-       * No ano atual, continuamos trabalhando a partir de hoje.
-       * Ao consultar um ano futuro, começamos em 01/01 daquele ano.
-       * Assim não precisamos criar 52 eventos antecipadamente.
-       */
-      const inicio =
-        anoAlvo && anoAlvo > anoAtual
-          ? `${anoAlvo}-01-01`
-          : hoje;
-
-      const fimAno =
-        anoAlvo && anoAlvo > anoAtual
-          ? `${anoAlvo}-12-31`
-          : adicionarDias(inicio, 35);
-
-      const { data: existentes, error: existentesError } = await supabase
-        .from("events")
-        .select("id, template_id, event_date")
-        .in(
-          "template_id",
-          modelos.map((template) => template.id)
-        )
-        .gte("event_date", inicio)
-        .lte("event_date", fimAno);
-
-      if (existentesError) throw existentesError;
-
-      const existentesSet = new Set(
-        (existentes || []).map(
-          (evento) => `${evento.template_id}|${evento.event_date}`
-        )
-      );
-
-      let criados = 0;
-
-      for (const template of modelos) {
-        let encontrados = 0;
-
-        for (
-          let deslocamento = 0;
-          deslocamento <=
-            (anoAlvo && anoAlvo > anoAtual ? 364 : 35) &&
-          encontrados < 5;
-          deslocamento++
-        ) {
-          const dataOcorrencia = adicionarDias(inicio, deslocamento);
-
-          if (diaSemana(dataOcorrencia) !== Number(template.weekday)) {
-            continue;
-          }
-
-          const chave = `${template.id}|${dataOcorrencia}`;
-
-          if (existentesSet.has(chave)) {
-            encontrados += 1;
-            continue;
-          }
-
-          // A restrição UNIQUE (template_id, event_date) no banco
-          // protege contra duas execuções simultâneas (ex.: React StrictMode).
-          const { data: eventoCriado, error: eventoError } = await supabase
-            .from("events")
-            .upsert(
-              {
-                template_id: template.id,
-                name: template.name,
-                event_date: dataOcorrencia,
-                location: template.location || null,
-                expected_amount: Number(template.default_amount || 0),
-                actual_amount: null,
-                expected_receipt_date: calcularDataRecebimento(
-                  dataOcorrencia,
-                  Number(template.receipt_days_after || 0)
-                ),
-                actual_receipt_date: null,
-                status: "agendado",
-                notes: "Ocorrência criada automaticamente pelo sistema.",
-              },
-              {
-                onConflict: "template_id,event_date",
-                ignoreDuplicates: true,
-              }
-            )
-            .select("id")
-            .maybeSingle();
-
-          if (eventoError) {
-            throw new Error(
-              eventoError.message ||
-                `Não foi possível criar ${template.name} em ${dataOcorrencia}.`
-            );
-          }
-
-          // Outra execução pode ter criado a ocorrência exatamente ao mesmo
-          // tempo. Nesse caso, ela já existe e não devemos criar receitas
-          // novamente.
-          if (!eventoCriado) {
-            existentesSet.add(chave);
-            encontrados += 1;
-            continue;
-          }
-
-          let receitas: Array<{
-            event_id: string;
-            description: string;
-            expected_amount: number;
-            actual_amount: number;
-            confirmed: boolean;
-            status: "pendente";
-            expected_receipt_date: string | null;
-          }> = [];
-
-          const { data: modelosReceita, error: receitasError } = await supabase
-            .from("recurring_event_revenue_templates")
-            .select("description, default_amount, receipt_days_after")
-            .eq("template_id", template.id)
-            .eq("active", true)
-            .order("created_at", { ascending: true });
-
-          if (receitasError) {
-            await supabase.from("events").delete().eq("id", eventoCriado.id);
-            throw receitasError;
-          }
-
-          if (modelosReceita && modelosReceita.length > 0) {
-            receitas = modelosReceita.map((receita) => ({
-              event_id: eventoCriado.id,
-              description: receita.description,
-              expected_amount: Number(receita.default_amount || 0),
-              actual_amount: 0,
-              confirmed: true,
-              status: "pendente" as const,
-              expected_receipt_date: calcularDataRecebimento(
-                dataOcorrencia,
-                Number(receita.receipt_days_after || 0)
-              ),
-            }));
-          } else if (
-            template.name.trim().toLowerCase() === "miami" ||
-            template.name.trim().toLowerCase() === "domingueira do miami"
-          ) {
-            receitas = [
-              {
-                event_id: eventoCriado.id,
-                description: "Evento",
-                expected_amount: 1300,
-                actual_amount: 0,
-                confirmed: true,
-                status: "pendente",
-                expected_receipt_date: calcularDataRecebimento(dataOcorrencia, 1),
-              },
-              {
-                event_id: eventoCriado.id,
-                description: "Aluguel de som",
-                expected_amount: 400,
-                actual_amount: 0,
-                confirmed: true,
-                status: "pendente",
-                expected_receipt_date: calcularDataRecebimento(dataOcorrencia, 1),
-              },
-            ];
-          } else {
-            receitas = [
-              {
-                event_id: eventoCriado.id,
-                description: "Evento",
-                expected_amount: Number(template.default_amount || 0),
-                actual_amount: 0,
-                confirmed: true,
-                status: "pendente",
-                expected_receipt_date: calcularDataRecebimento(
-                  dataOcorrencia,
-                  Number(template.receipt_days_after || 0)
-                ),
-              },
-            ];
-          }
-
-          if (receitas.length > 0) {
-            const { error: insertReceitasError } = await supabase
-              .from("event_revenues")
-              .insert(receitas);
-
-            if (insertReceitasError) {
-              await supabase.from("events").delete().eq("id", eventoCriado.id);
-              throw insertReceitasError;
-            }
-          }
-
-          existentesSet.add(chave);
-          criados += 1;
-          encontrados += 1;
-        }
-      }
-
-      await carregarEventos();
-
-      setMensagemRecorrencia(
-        criados > 0
-          ? `${criados} ocorrência(s) recorrente(s) criada(s) automaticamente.`
-          : "As próximas ocorrências recorrentes já estavam cadastradas."
-      );
-    } catch (error: any) {
-      console.error(error);
-      setMensagemRecorrencia(
-        `Erro ao gerar ocorrências recorrentes: ${error.message || "erro desconhecido"}`
-      );
-    } finally {
-      setGerandoRecorrencias(false);
-    }
-  }
-
-  async function sincronizarRecebimentosComReceitas(eventosLista: Evento[]) {
-    if (!eventosLista.length) return;
-
-    const idsEventos = eventosLista.map((evento) => evento.id);
-
-    const { data: receitas, error: receitasError } = await supabase
-      .from("event_revenues")
-      .select("id,event_id,expected_amount,actual_amount,confirmed,status,actual_receipt_date")
-      .in("event_id", idsEventos);
-
-    if (receitasError) throw receitasError;
-    if (!receitas || receitas.length === 0) return;
-
-    const idsReceitas = receitas.map((receita: any) => receita.id);
-
-    const { data: parcelas, error: parcelasError } = await supabase
-      .from("event_revenue_receipts")
-      .select("id,event_revenue_id,expected_amount,actual_amount,actual_receipt_date,status")
-      .in("event_revenue_id", idsReceitas);
-
-    if (parcelasError) throw parcelasError;
-
-    const parcelasPorReceita = new Map<string, any[]>();
-
-    for (const parcela of parcelas || []) {
-      const lista = parcelasPorReceita.get(parcela.event_revenue_id) || [];
-      lista.push(parcela);
-      parcelasPorReceita.set(parcela.event_revenue_id, lista);
-    }
-
-    for (const receita of receitas as any[]) {
-      if (!receita.confirmed || receita.status === "cancelado") continue;
-      if (receita.status !== "recebido") continue;
-
-      const parcelasRecebidas = (parcelasPorReceita.get(receita.id) || [])
-        .filter((parcela) => parcela.status === "recebido");
-
-      const totalParcelasRecebidas = parcelasRecebidas.reduce(
-        (total, parcela) => total + Number(parcela.actual_amount || 0),
-        0
-      );
-
-      const valorRecebidoReceita = Number(
-        receita.actual_amount || receita.expected_amount || 0
-      );
-
-      if (valorRecebidoReceita > totalParcelasRecebidas) {
-        const diferenca = Number(
-          (valorRecebidoReceita - totalParcelasRecebidas).toFixed(2)
-        );
-
-        if (diferenca > 0) {
-          const { error } = await supabase
-            .from("event_revenue_receipts")
-            .insert({
-              event_revenue_id: receita.id,
-              description:
-                totalParcelasRecebidas > 0
-                  ? "Saldo final"
-                  : receita.description,
-              expected_amount: diferenca,
-              actual_amount: diferenca,
-              expected_receipt_date: receita.actual_receipt_date || null,
-              actual_receipt_date: receita.actual_receipt_date || null,
-              status: "recebido",
-              payment_method: null,
-              notes:
-                totalParcelasRecebidas > 0
-                  ? "Complemento automático para completar o valor já marcado como recebido."
-                  : "Recebimento sincronizado automaticamente.",
-            });
-
-          if (error) throw error;
-        }
-      } else if (totalParcelasRecebidas > valorRecebidoReceita) {
-        const ultimaData = parcelasRecebidas
-          .map((parcela) => parcela.actual_receipt_date)
-          .filter(Boolean)
-          .sort()
-          .at(-1) || receita.actual_receipt_date || null;
-
-        const { error } = await supabase
-          .from("event_revenues")
-          .update({
-            actual_amount: totalParcelasRecebidas,
-            actual_receipt_date: ultimaData,
-          })
-          .eq("id", receita.id);
-
-        if (error) throw error;
-      }
-    }
+    setTemplates(data || []);
+    return data || [];
   }
 
   async function carregarEventos() {
     const { data, error } = await supabase
       .from("events")
-      .select("*")
-      .order("event_date", { ascending: false });
+      .select("id,template_id,name,event_date,event_time,location,expected_amount,expected_receipt_date,status,notes")
+      .order("event_date", { ascending: true });
 
     if (error) {
       console.error(error);
+      setErro("Erro ao carregar os eventos.");
       return;
     }
 
-    const eventosLista = data || [];
+    const lista = (data || []) as Evento[];
+    setEventos(lista);
+
+    const { data: rec, error: recError } = await supabase
+      .from("event_revenues")
+      .select("id,event_id,description,expected_amount,actual_amount,status");
+    if (recError) {
+      console.error(recError);
+      return;
+    }
+    setReceitas((rec || []) as Receita[]);
+
+    const { data: par, error: parError } = await supabase
+      .from("event_revenue_receipts")
+      .select("id,event_revenue_id,description,expected_amount,actual_amount,expected_receipt_date,actual_receipt_date,status");
+    if (parError) {
+      console.error(parError);
+      return;
+    }
+    setParcelas((par || []) as Parcela[]);
+  }
+
+  // ---------------------------------------------------------
+  // EVENTOS RECORRENTES (Lapa, Miami...)
+  // Mantém as próximas ocorrências criadas automaticamente.
+  // ---------------------------------------------------------
+  async function receitasDoTemplate(template: Template, eventId: string, data: string) {
+    const { data: modelos, error } = await supabase
+      .from("recurring_event_revenue_templates")
+      .select("description, default_amount, receipt_days_after")
+      .eq("template_id", template.id)
+      .eq("active", true)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    if (modelos && modelos.length > 0) {
+      return modelos.map((r) => ({
+        event_id: eventId,
+        description: r.description,
+        expected_amount: Number(r.default_amount || 0),
+        actual_amount: 0,
+        confirmed: true,
+        status: "pendente",
+        expected_receipt_date: adicionarDias(data, Number(r.receipt_days_after || 0)),
+      }));
+    }
+
+    const nome = template.name.trim().toLowerCase();
+    if (nome === "miami" || nome === "domingueira do miami") {
+      return [
+        { description: "Evento", expected_amount: 1300 },
+        { description: "Aluguel de som", expected_amount: 400 },
+      ].map((r) => ({
+        event_id: eventId,
+        ...r,
+        actual_amount: 0,
+        confirmed: true,
+        status: "pendente",
+        expected_receipt_date: adicionarDias(data, 1),
+      }));
+    }
+
+    return [
+      {
+        event_id: eventId,
+        description: "Evento",
+        expected_amount: Number(template.default_amount || 0),
+        actual_amount: 0,
+        confirmed: true,
+        status: "pendente",
+        expected_receipt_date: adicionarDias(data, Number(template.receipt_days_after || 0)),
+      },
+    ];
+  }
+
+  async function gerarProximasOcorrencias(modelos = templates, anoAlvo?: number) {
+    if (modelos.length === 0) return;
+
+    setGerando(true);
 
     try {
-      await sincronizarRecebimentosComReceitas(eventosLista);
-    } catch (syncError) {
-      console.error("Erro ao sincronizar recebimentos:", syncError);
-    }
+      const anoAtual = new Date().getFullYear();
+      const futuro = !!anoAlvo && anoAlvo > anoAtual;
+      const inicio = futuro ? `${anoAlvo}-01-01` : hojeISO();
+      const fim = futuro ? `${anoAlvo}-12-31` : adicionarDias(inicio, 35);
 
-    setEventos(eventosLista);
-  }
-  async function carregarInstrumentos() {
-    const { data, error } = await supabase
-      .from("instruments")
-      .select("id, name")
-      .order("name");
-
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    setInstrumentos(data || []);
-  }
-
-  async function carregarMusicos() {
-    const { data: musicosData, error: musicosError } =
-      await supabase
-        .from("musicians")
-        .select("id, name, type, cache, pix, active")
-        .eq("active", true)
-        .order("name");
-
-    if (musicosError) {
-      console.error(musicosError);
-      return;
-    }
-
-    const { data: relacoes, error: relacoesError } =
-      await supabase
-        .from("musician_instruments")
-        .select("musician_id, instrument_id");
-
-    if (relacoesError) {
-      console.error(relacoesError);
-      return;
-    }
-
-    const { data: instrumentosData, error: instrumentosError } =
-      await supabase
-        .from("instruments")
-        .select("id, name");
-
-    if (instrumentosError) {
-      console.error(instrumentosError);
-      return;
-    }
-
-    const musicosComInstrumentos: Musico[] =
-      (musicosData || []).map((musico) => {
-        const instrumentosDoMusico =
-          (relacoes || [])
-            .filter(
-              (relacao) =>
-                relacao.musician_id === musico.id
-            )
-            .map((relacao) => {
-              return (instrumentosData || []).find(
-                (instrumento) =>
-                  instrumento.id ===
-                  relacao.instrument_id
-              );
-            })
-            .filter(
-              (instrumento): instrumento is Instrumento =>
-                Boolean(instrumento)
-            );
-
-        return {
-          ...musico,
-          instrumentos: instrumentosDoMusico,
-        };
-      });
-
-    setMusicos(musicosComInstrumentos);
-  }
-  function formatarMoeda(valor: number | null | undefined) {
-    return `R$ ${Number(valor || 0)
-      .toFixed(2)
-      .replace(".", ",")}`;
-  }
-
-  function formatarData(data: string | null) {
-    if (!data) return "-";
-
-    const [ano, mes, dia] = data.split("-");
-
-    return `${dia}/${mes}/${ano}`;
-  }
-
-  function calcularDataRecebimento(
-    data: string,
-    dias: number
-  ) {
-    if (!data) return "";
-
-    const dataObj = new Date(`${data}T12:00:00`);
-    dataObj.setDate(dataObj.getDate() + dias);
-
-    return dataObj.toISOString().split("T")[0];
-  }
-
-  function selecionarTemplate(id: string) {
-    if (id) {
-      setValorTotalEvento("");
-      setValorSinal("");
-      setDataPagamentoSinal("");
-      setDataPagamentoSaldo("");
-    }
-
-    setTemplateSelecionado(id);
-
-    const template = templates.find((item) => item.id === id);
-
-    if (!template) return;
-
-    setNome(template.name);
-    setValorPrevisto(String(template.default_amount));
-
-    setDataRecebimento(
-      calcularDataRecebimento(
-        dataEvento,
-        template.receipt_days_after
-      )
-    );
-
-    if (template.location) {
-      setLocal(template.location);
-    }
-  }
-
-  function alterarDataEvento(data: string) {
-    setDataEvento(data);
-
-    if (templateSelecionado) {
-      const template = templates.find(
-        (item) => item.id === templateSelecionado
-      );
-
-      if (template) {
-        setDataRecebimento(
-          calcularDataRecebimento(
-            data,
-            template.receipt_days_after
-          )
-        );
-      }
-    }
-  }
-
-  function novoEvento() {
-    setEventoEditando(null);
-    setNome("");
-    setDataEvento("");
-    setHorarioEvento("");
-    setLocal("");
-    setValorPrevisto("");
-    setValorTotalEvento("");
-    setValorSinal("");
-    setDataPagamentoSinal("");
-    setDataPagamentoSaldo("");
-    setDataRecebimento("");
-    setObservacoes("");
-    setTemplateSelecionado("");
-    setMostrarFormulario(true);
-  }
-
-  function editarEvento(evento: Evento) {
-    setEventoEditando(evento);
-    setNome(evento.name || "");
-    setDataEvento(evento.event_date || "");
-    setHorarioEvento(evento.event_time || "");
-    setLocal(evento.location || "");
-    setValorPrevisto(String(evento.expected_amount || 0));
-    setValorTotalEvento(String(evento.expected_amount || 0));
-    setDataRecebimento(evento.expected_receipt_date || "");
-    setObservacoes(evento.notes || "");
-    setTemplateSelecionado(evento.template_id || "");
-    setMostrarFormulario(true);
-  }
-
-  function cancelarFormulario() {
-    setMostrarFormulario(false);
-    setEventoEditando(null);
-  }
-
-  useEffect(() => {
-    if (!eventoRecebimentos) return;
-
-    const timer = window.setTimeout(() => {
-      recebimentosRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 80);
-
-    return () => window.clearTimeout(timer);
-  }, [eventoRecebimentos]);
-
-  useEffect(() => {
-    if (!mostrarFormulario) return;
-
-    const timer = window.setTimeout(() => {
-      formularioRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 50);
-
-    return () => window.clearTimeout(timer);
-  }, [mostrarFormulario, eventoEditando]);
-
-  async function salvarEvento() {
-    if (!nome.trim()) {
-      alert("Informe o nome do evento.");
-      return;
-    }
-
-    if (!dataEvento) {
-      alert("Informe a data do evento.");
-      return;
-    }
-
-    const valor = Number(
-      (templateSelecionado ? valorPrevisto : valorTotalEvento).replace(",", ".")
-    );
-    const sinal = Number((valorSinal || "0").replace(",", "."));
-
-    if (isNaN(valor) || valor <= 0) {
-      alert("Informe o valor total do evento.");
-      return;
-    }
-
-    if (!eventoEditando && !templateSelecionado) {
-      if (isNaN(sinal) || sinal < 0 || sinal > valor) {
-        alert("O valor do sinal deve estar entre R$ 0,00 e o valor total do evento.");
-        return;
-      }
-      if (sinal > 0 && !dataPagamentoSinal) {
-        alert("Informe a data em que o sinal foi pago.");
-        return;
-      }
-      if (sinal < valor && !dataPagamentoSaldo) {
-        alert("Informe a data prevista para pagamento do saldo.");
-        return;
-      }
-    }
-
-    setCarregando(true);
-
-    try {
-      if (eventoEditando) {
-        const { error: updateError } = await supabase
-          .from("events")
-          .update({
-            name: nome.trim(),
-            event_date: dataEvento,
-            event_time: horarioEvento || null,
-            location: local.trim() || null,
-            notes: observacoes.trim() || null,
-            expected_amount: valor,
-          })
-          .eq("id", eventoEditando.id);
-
-        if (updateError) throw updateError;
-
-        const { data: receitasExistentes, error: receitasError } = await supabase
-          .from("event_revenues")
-          .select("id,description")
-          .eq("event_id", eventoEditando.id);
-
-        if (receitasError) throw receitasError;
-
-        if (!templateSelecionado && (receitasExistentes || []).length === 1) {
-          const principal = receitasExistentes?.[0];
-          if (principal) {
-            const { error: receitaUpdateError } = await supabase
-              .from("event_revenues")
-              .update({ expected_amount: valor })
-              .eq("id", principal.id);
-
-            if (receitaUpdateError) throw receitaUpdateError;
-          }
-        }
-
-        alert("Evento atualizado com sucesso!");
-        setMostrarFormulario(false);
-        setEventoEditando(null);
-        await carregarEventos();
-        return;
-      }
-
-      const { data: eventoCriado, error: eventoError } = await supabase
+      const { data: existentes, error } = await supabase
         .from("events")
-        .insert({
-          template_id: templateSelecionado || null,
-          name: nome.trim(),
-          event_date: dataEvento,
-          event_time: horarioEvento || null,
-          location: local.trim() || null,
-          expected_amount: valor,
-          actual_amount: null,
-          expected_receipt_date: (!templateSelecionado ? dataPagamentoSaldo : dataRecebimento) || null,
-          status: "agendado",
-          notes: observacoes.trim() || null,
-        })
-        .select()
-        .single();
+        .select("template_id, event_date")
+        .in("template_id", modelos.map((t) => t.id))
+        .gte("event_date", inicio)
+        .lte("event_date", fim);
 
-      if (eventoError || !eventoCriado) {
-        console.error(eventoError);
-        alert(`Erro ao cadastrar o evento: ${eventoError?.message || "evento não criado"}`);
-        return;
-      }
+      if (error) throw error;
 
-      let receitas: {
-        event_id: string;
-        description: string;
-        expected_amount: number;
-        actual_amount: number;
-        confirmed: boolean;
-        status: "pendente" | "parcial" | "recebido" | "cancelado";
-        expected_receipt_date: string | null;
-      }[] = [];
+      const jaExiste = new Set((existentes || []).map((e) => `${e.template_id}|${e.event_date}`));
 
-      if (templateSelecionado) {
-        const { data: modelosReceita, error: modelosError } = await supabase
-          .from("recurring_event_revenue_templates")
-          .select("description, default_amount, receipt_days_after")
-          .eq("template_id", templateSelecionado)
-          .eq("active", true)
-          .order("created_at", { ascending: true });
+      for (const template of modelos) {
+        let encontrados = 0;
 
-        if (modelosError) {
-          console.error(modelosError);
-          await supabase.from("events").delete().eq("id", eventoCriado.id);
-          alert(`O evento não foi salvo porque as receitas não puderam ser carregadas: ${modelosError.message}`);
-          return;
-        }
+        for (let i = 0; i <= (futuro ? 364 : 35) && encontrados < 5; i++) {
+          const data = adicionarDias(inicio, i);
+          if (diaSemana(data) !== Number(template.weekday)) continue;
 
-        if (modelosReceita && modelosReceita.length > 0) {
-          receitas = modelosReceita.map((receita) => ({
-            event_id: eventoCriado.id,
-            description: receita.description,
-            expected_amount: Number(receita.default_amount || 0),
-            actual_amount: 0,
-            confirmed: true,
-            status: "pendente",
-            expected_receipt_date: calcularDataRecebimento(
-              dataEvento,
-              Number(receita.receipt_days_after || 0)
-            ),
-          }));
-        } else {
-          // Fallback de segurança para não criar um evento sem suas receitas.
-          // Miami possui duas receitas: evento + aluguel de som.
-          const template = templates.find((item) => item.id === templateSelecionado);
-          const nomeTemplate = (template?.name || "").trim().toLowerCase();
-
-          if (nomeTemplate === "miami") {
-            receitas = [
-              {
-                event_id: eventoCriado.id,
-                description: "Evento",
-                expected_amount: 1300,
-                actual_amount: 0,
-                confirmed: true,
-                status: "pendente",
-                expected_receipt_date: calcularDataRecebimento(dataEvento, 1),
-              },
-              {
-                event_id: eventoCriado.id,
-                description: "Aluguel de som",
-                expected_amount: 400,
-                actual_amount: 0,
-                confirmed: true,
-                status: "pendente",
-                expected_receipt_date: calcularDataRecebimento(dataEvento, 1),
-              },
-            ];
-          } else {
-            receitas = [
-              {
-                event_id: eventoCriado.id,
-                description: "Evento",
-                expected_amount: valor,
-                actual_amount: 0,
-                confirmed: true,
-                status: "pendente",
-                expected_receipt_date: dataRecebimento || null,
-              },
-            ];
+          const chave = `${template.id}|${data}`;
+          if (jaExiste.has(chave)) {
+            encontrados += 1;
+            continue;
           }
-        }
-      } else {
-        receitas = [
-          {
-            event_id: eventoCriado.id,
-            description: "Evento",
-            expected_amount: valor,
-            actual_amount: 0,
-            confirmed: true,
-            status: "pendente",
-            expected_receipt_date: dataPagamentoSaldo || dataRecebimento || dataEvento,
-          },
-        ];
-      }
 
-      if (receitas.length === 0) {
-        await supabase.from("events").delete().eq("id", eventoCriado.id);
-        alert("O evento não foi salvo porque nenhuma receita foi configurada.");
-        return;
-      }
+          // UNIQUE (template_id, event_date) evita duplicar
+          const { data: criado, error: criarErro } = await supabase
+            .from("events")
+            .upsert(
+              {
+                template_id: template.id,
+                name: template.name,
+                event_date: data,
+                location: template.location || null,
+                expected_amount: Number(template.default_amount || 0),
+                actual_amount: null,
+                expected_receipt_date: adicionarDias(data, Number(template.receipt_days_after || 0)),
+                actual_receipt_date: null,
+                status: "agendado",
+                notes: "Ocorrência criada automaticamente pelo sistema.",
+              },
+              { onConflict: "template_id,event_date", ignoreDuplicates: true }
+            )
+            .select("id")
+            .maybeSingle();
 
-      const { error: receitaError } = await supabase
-        .from("event_revenues")
-        .insert(receitas);
+          if (criarErro) throw criarErro;
 
-      if (receitaError) {
-        console.error(receitaError);
-        await supabase.from("events").delete().eq("id", eventoCriado.id);
-        alert(`O evento não foi salvo porque houve erro ao criar as receitas: ${receitaError.message}`);
-        return;
-      }
-
-      if (!templateSelecionado) {
-        const { data: receitaPrincipal, error: receitaPrincipalError } = await supabase
-          .from("event_revenues")
-          .select("id")
-          .eq("event_id", eventoCriado.id)
-          .eq("description", "Evento")
-          .single();
-
-        if (receitaPrincipalError || !receitaPrincipal) {
-          await supabase.from("events").delete().eq("id", eventoCriado.id);
-          alert("Não foi possível localizar a receita principal do evento.");
-          return;
-        }
-
-        const parcelas: any[] = [];
-        if (sinal > 0) {
-          parcelas.push({
-            event_revenue_id: receitaPrincipal.id,
-            description: "Sinal",
-            expected_amount: sinal,
-            actual_amount: sinal,
-            expected_receipt_date: dataPagamentoSinal,
-            actual_receipt_date: dataPagamentoSinal,
-            status: "recebido",
-            payment_method: null,
-            notes: "Sinal informado no cadastro do evento",
-          });
-        }
-
-        const saldo = valor - sinal;
-        if (saldo > 0) {
-          parcelas.push({
-            event_revenue_id: receitaPrincipal.id,
-            description: "Saldo final",
-            expected_amount: saldo,
-            actual_amount: 0,
-            expected_receipt_date: dataPagamentoSaldo || dataRecebimento || dataEvento,
-            actual_receipt_date: null,
-            status: "pendente",
-            payment_method: null,
-            notes: null,
-          });
-        }
-
-        if (parcelas.length > 0) {
-          const { error: parcelasError } = await supabase
-            .from("event_revenue_receipts")
-            .insert(parcelas);
-
-          if (parcelasError) {
-            console.error(parcelasError);
-            await supabase.from("events").delete().eq("id", eventoCriado.id);
-            alert(`O evento foi criado, mas houve erro ao criar os recebimentos: ${parcelasError.message}`);
-            return;
+          if (criado) {
+            const linhas = await receitasDoTemplate(template, criado.id, data);
+            const { error: recErro } = await supabase.from("event_revenues").insert(linhas);
+            if (recErro) {
+              await supabase.from("events").delete().eq("id", criado.id);
+              throw recErro;
+            }
           }
+
+          jaExiste.add(chave);
+          encontrados += 1;
         }
       }
 
-      try {
-        const googleResponse = await fetch("/api/google/calendar", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            eventId: eventoCriado.id,
-          }),
-        });
-
-        const googleResult = await googleResponse.json();
-
-        console.log("RESULTADO GOOGLE:", googleResult);
-
-        if (!googleResponse.ok || !googleResult.success) {
-          alert(
-            "Evento salvo no ViroMania, mas o Google Agenda retornou erro:\n\n" +
-            (googleResult.error || "Erro desconhecido.")
-          );
-        } else if (googleResult.alreadySynced) {
-          alert("Este evento já estava sincronizado com o Google Agenda.");
-        } else if (googleResult.notConnected) {
-          alert("O Google Agenda não está conectado. Clique em 'Conectar Google Agenda'.");
-        } else {
-          alert("Evento criado e sincronizado com o Google Agenda com sucesso!");
-        }
-      } catch (googleError) {
-        console.error("ERRO GOOGLE:", googleError);
-
-        alert(
-          "Evento salvo no ViroMania, mas não foi possível sincronizar com o Google Agenda."
-        );
-      }
-
-      alert("Evento e recebimentos cadastrados com sucesso!");
-      setMostrarFormulario(false);
       await carregarEventos();
+    } catch (e: any) {
+      console.error(e);
+      setErro(`Erro ao gerar eventos recorrentes: ${e?.message || "erro desconhecido"}`);
     } finally {
-      setCarregando(false);
+      setGerando(false);
     }
   }
 
-  async function abrirMusicosEvento(evento: Evento) {
-    setEventoSelecionado(evento);
+  useEffect(() => {
+    (async () => {
+      const modelos = await carregarTemplates();
+      await carregarEventos();
+      if (modelos.length > 0) await gerarProximasOcorrencias(modelos);
+    })();
+  }, []);
 
-    const { data: participantes, error: participantesError } =
-      await supabase
-        .from("event_musicians")
-        .select("*")
-        .eq("event_id", evento.id);
+  useEffect(() => {
+    if (templates.length === 0) return;
+    if (ano > new Date().getFullYear()) gerarProximasOcorrencias(templates, ano);
+  }, [ano, templates.length]);
 
-    if (participantesError) {
-      console.error(participantesError);
-      alert("Erro ao carregar os músicos do evento.");
-      return;
-    }
+  useEffect(() => {
+    if (!formAberto) return;
+    const t = window.setTimeout(
+      () => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      60
+    );
+    return () => window.clearTimeout(t);
+  }, [formAberto, editando]);
 
-    const { data: instrumentosEvento, error: instrumentosError } =
-      await supabase
-        .from("event_musician_instruments")
-        .select("event_musician_id, instrument_id")
-        .in(
-          "event_musician_id",
-          (participantes || []).map((item) => item.id)
-        );
+  // ---------------------------------------------------------
+  // DADOS DE CADA EVENTO (valor, sinal, restante)
+  // ---------------------------------------------------------
+  function resumoFinanceiro(evento: Evento) {
+    const rec = receitas.filter((r) => r.event_id === evento.id);
+    const ids = new Set(rec.map((r) => r.id));
+    const par = parcelas.filter((p) => ids.has(p.event_revenue_id));
+    const sinais = par.filter((p) => ehSinal(p.description) && p.status === "recebido");
+    const sinal = sinais.reduce((s, p) => s + Number(p.actual_amount || p.expected_amount || 0), 0);
+    const dataSinal = sinais.map((p) => p.actual_receipt_date).filter(Boolean).sort()[0] || null;
+    const valor = Number(evento.expected_amount || 0);
 
-    if (instrumentosError) {
-      console.error(instrumentosError);
-      alert("Erro ao carregar os instrumentos do evento.");
-      return;
-    }
+    return {
+      receitas: rec,
+      parcelas: par,
+      valor,
+      sinal,
+      dataSinal,
+      restante: Math.max(valor - sinal, 0),
+    };
+  }
 
-    const lista: MusicoEvento[] = musicos.map((musico) => {
-      const participante = (participantes || []).find(
-        (item) => item.musician_id === musico.id
+  const anos = useMemo(() => {
+    const atual = new Date().getFullYear();
+    return Array.from(
+      new Set([atual - 1, atual, atual + 1, ...eventos.map((e) => Number(e.event_date.slice(0, 4)))])
+    ).sort((a, b) => a - b);
+  }, [eventos]);
+
+  const eventosDoAno = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+
+    return eventos
+      .filter((e) => Number(e.event_date.slice(0, 4)) === ano)
+      .filter((e) => (verRealizados ? e.status === "realizado" : e.status !== "realizado"))
+      .filter((e) => {
+        if (!termo) return true;
+        const obs = lerObservacoes(e.notes);
+        return [e.name, e.location || "", dataBR(e.event_date), obs.responsavel, obs.telefone]
+          .join(" ")
+          .toLowerCase()
+          .includes(termo);
+      })
+      .sort((a, b) =>
+        `${a.event_date}T${a.event_time || "00:00"}`.localeCompare(`${b.event_date}T${b.event_time || "00:00"}`)
       );
+  }, [eventos, ano, busca, verRealizados]);
 
-      const instrumentosSelecionados = participante
-        ? (instrumentosEvento || [])
-            .filter(
-              (item) =>
-                item.event_musician_id === participante.id
-            )
-            .map((item) => item.instrument_id)
-        : [];
+  const qtdRealizados = eventos.filter(
+    (e) => Number(e.event_date.slice(0, 4)) === ano && e.status === "realizado"
+  ).length;
 
-      return {
-        id: participante?.id || "",
-        musician_id: musico.id,
-        musician_name: musico.name,
-        default_cache: Number(musico.cache || 0),
-        use_default_cache: participante
-          ? participante.use_default_cache
-          : true,
-        event_cache: participante
-          ? Number(participante.event_cache || musico.cache || 0)
-          : Number(musico.cache || 0),
-        instrumentos: musico.instrumentos || [],
-        instrumentosSelecionados,
-        payment_status: participante?.payment_status || "pendente",
-        payment_date: participante?.payment_date || null,
-        payment_method: participante?.payment_method || null,
-        payment_notes: participante?.payment_notes || null,
-      };
+  // ---------------------------------------------------------
+  // FORMULÁRIO
+  // ---------------------------------------------------------
+  function abrirNovo() {
+    setEditando(null);
+    setForm(FORM_VAZIO);
+    setErro("");
+    setMensagem("");
+    setFormAberto(true);
+  }
+
+  function abrirEdicao(evento: Evento) {
+    const fin = resumoFinanceiro(evento);
+    const obs = lerObservacoes(evento.notes);
+
+    setEditando(evento);
+    setForm({
+      templateId: evento.template_id || "",
+      nome: evento.name || "",
+      data: evento.event_date || "",
+      horario: evento.event_time ? String(evento.event_time).slice(0, 5) : "",
+      termino: obs.termino,
+      local: evento.location || "",
+      valor: String(fin.valor || ""),
+      sinal: fin.sinal > 0 ? String(fin.sinal) : "",
+      dataSinal: fin.dataSinal || "",
+      dataRestante: evento.expected_receipt_date || "",
+      responsavel: obs.responsavel,
+      telefone: obs.telefone,
+      observacoes: obs.texto,
+    });
+    setErro("");
+    setMensagem("");
+    setFormAberto(true);
+  }
+
+  function escolherTemplate(id: string) {
+    const t = templates.find((x) => x.id === id);
+    setForm((f) => ({
+      ...f,
+      templateId: id,
+      nome: t ? t.name : f.nome,
+      local: t?.location || f.local,
+      valor: t ? String(t.default_amount || "") : f.valor,
+      dataRestante:
+        t && f.data ? adicionarDias(f.data, Number(t.receipt_days_after || 0)) : f.dataRestante,
+    }));
+  }
+
+  // Eventos com mais de uma receita (ex.: Miami = Evento + Aluguel de som)
+  // têm o valor definido pelas receitas, não pelo campo.
+  const valorBloqueado = useMemo(() => {
+    if (!editando) return false;
+    return receitas.filter((r) => r.event_id === editando.id).length > 1;
+  }, [editando, receitas]);
+
+  async function sincronizarGoogle(eventId: string) {
+    try {
+      const r = await fetch("/api/google/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId }),
+      });
+      const j = await r.json();
+      if (j.notConnected) return " (Google Agenda não está conectado)";
+      if (!r.ok || !j.success) return ` (não sincronizou com o Google: ${j.error || "erro"})`;
+      return j.updated ? " e atualizado na Agenda do Google" : " e enviado para a Agenda do Google";
+    } catch {
+      return " (não foi possível sincronizar com o Google)";
+    }
+  }
+
+  async function salvar() {
+    setErro("");
+    setMensagem("");
+
+    const valor = numero(form.valor);
+    const sinal = numero(form.sinal);
+
+    if (!form.nome.trim()) return setErro("Informe o nome do evento.");
+    if (!form.data) return setErro("Informe a data do evento.");
+    if (!valorBloqueado && (!Number.isFinite(valor) || valor <= 0))
+      return setErro("Informe o valor cobrado.");
+    if (!Number.isFinite(sinal) || sinal < 0) return setErro("Valor do sinal inválido.");
+    if (!valorBloqueado && sinal > valor) return setErro("O sinal não pode ser maior que o valor cobrado.");
+    if (sinal > 0 && !form.dataSinal) return setErro("Informe a data em que o sinal foi recebido.");
+
+    if (form.termino && !form.horario) return setErro("Informe o horário de início.");
+
+    const notas = montarObservacoes({
+      termino: form.termino,
+      responsavel: form.responsavel,
+      telefone: form.telefone,
+      texto: form.observacoes,
     });
 
-    setMusicosEvento(lista);
-    setMostrarMusicos(true);
-  }
-    async function salvarMusicosEvento() {
-    if (!eventoSelecionado) return;
-
-    setSalvandoMusicos(true);
+    setSalvando(true);
 
     try {
-      const { data: participantesAtuais, error: buscarError } = await supabase
-        .from("event_musicians")
-        .select("*")
-        .eq("event_id", eventoSelecionado.id);
+      let eventId: string;
 
-      if (buscarError) {
-        console.error(buscarError);
-        alert("Erro ao carregar os músicos atuais do evento.");
-        return;
-      }
+      if (!editando) {
+        // ------------------- NOVO -------------------
+        const template = templates.find((t) => t.id === form.templateId) || null;
 
-      const selecionados = musicosEvento.filter(
-        (musico) => musico.instrumentosSelecionados.length > 0
-      );
-
-      const idsSelecionados = new Set(
-        selecionados.map((musico) => musico.musician_id)
-      );
-
-      // Remove somente quem foi retirado do evento.
-      const participantesParaRemover = (participantesAtuais || []).filter(
-        (participante) => !idsSelecionados.has(participante.musician_id)
-      );
-
-      for (const participante of participantesParaRemover) {
-        const { error: instrumentosError } = await supabase
-          .from("event_musician_instruments")
-          .delete()
-          .eq("event_musician_id", participante.id);
-
-        if (instrumentosError) {
-          console.error(instrumentosError);
-          alert("Erro ao remover os instrumentos do músico.");
-          return;
-        }
-
-        const { error: participanteError } = await supabase
-          .from("event_musicians")
-          .delete()
-          .eq("id", participante.id);
-
-        if (participanteError) {
-          console.error(participanteError);
-          alert("Erro ao remover o músico do evento.");
-          return;
-        }
-      }
-
-      for (const musico of selecionados) {
-        const participanteExistente = (participantesAtuais || []).find(
-          (item) => item.musician_id === musico.musician_id
-        );
-
-        let participanteId = participanteExistente?.id || "";
-
-        if (participanteExistente) {
-          const { error: participanteError } = await supabase
-            .from("event_musicians")
-            .update({
-              use_default_cache: musico.use_default_cache,
-              event_cache: musico.event_cache,
-            })
-            .eq("id", participanteExistente.id);
-
-          if (participanteError) {
-            console.error(participanteError);
-            alert(`Erro ao atualizar o músico ${musico.musician_name}: ${participanteError.message}`);
-            return;
-          }
-        } else {
-          const { data: participante, error: participanteError } = await supabase
-            .from("event_musicians")
-            .insert({
-              event_id: eventoSelecionado.id,
-              musician_id: musico.musician_id,
-              use_default_cache: musico.use_default_cache,
-              event_cache: musico.event_cache,
-              payment_status: "pendente",
-            })
-            .select("id")
-            .single();
-
-          if (participanteError || !participante) {
-            console.error(participanteError);
-            alert(`Erro ao salvar o músico ${musico.musician_name}: ${participanteError?.message || "erro desconhecido"}`);
-            return;
-          }
-
-          participanteId = participante.id;
-        }
-
-        // Atualiza apenas os instrumentos. O registro do músico é preservado,
-        // inclusive status/data do pagamento e, portanto, não dispara duplicidade no Caixa.
-        const { error: limparInstrumentosError } = await supabase
-          .from("event_musician_instruments")
-          .delete()
-          .eq("event_musician_id", participanteId);
-
-        if (limparInstrumentosError) {
-          console.error(limparInstrumentosError);
-          alert(`Erro ao atualizar os instrumentos de ${musico.musician_name}.`);
-          return;
-        }
-
-        const instrumentosParaSalvar = musico.instrumentosSelecionados.map(
-          (instrumentId) => ({
-            event_musician_id: participanteId,
-            instrument_id: instrumentId,
+        const { data: criado, error } = await supabase
+          .from("events")
+          .insert({
+            template_id: template?.id || null,
+            name: form.nome.trim(),
+            event_date: form.data,
+            event_time: form.horario || null,
+            location: form.local.trim() || null,
+            expected_amount: valor,
+            actual_amount: null,
+            expected_receipt_date: form.dataRestante || null,
+            status: "agendado",
+            notes: notas,
           })
-        );
-
-        if (instrumentosParaSalvar.length > 0) {
-          const { error: instrumentoError } = await supabase
-            .from("event_musician_instruments")
-            .insert(instrumentosParaSalvar);
-
-          if (instrumentoError) {
-            console.error(instrumentoError);
-            alert(`Erro ao salvar os instrumentos de ${musico.musician_name}.`);
-            return;
-          }
-        }
-      }
-
-      alert("Músicos do evento salvos com sucesso!");
-      setMostrarMusicos(false);
-      setEventoSelecionado(null);
-      setMusicosEvento([]);
-    } finally {
-      setSalvandoMusicos(false);
-    }
-  }
-
-  async function alterarStatus(
-    id: string,
-    status: string
-  ) {
-    const { error } = await supabase
-      .from("events")
-      .update({ status })
-      .eq("id", id);
-
-    if (error) {
-      console.error(error);
-      alert("Erro ao atualizar o evento.");
-      return;
-    }
-
-    await carregarEventos();
-  }
-
-  async function abrirRecebimentosEvento(evento: Evento) {
-    setEventoRecebimentos(evento);
-    setRecebimentosParcelas([]);
-
-    const { data: receitas, error: receitasError } = await supabase
-      .from("event_revenues")
-      .select("id,description,expected_amount,actual_amount,confirmed,status,expected_receipt_date,actual_receipt_date,notes")
-      .eq("event_id", evento.id)
-      .order("created_at", { ascending: true });
-
-    if (receitasError) {
-      console.error(receitasError);
-      setEventoRecebimentos(null);
-      alert(`Erro ao carregar as receitas: ${receitasError.message}`);
-      return;
-    }
-
-    if (!receitas || receitas.length === 0) {
-      alert("Este evento não possui receitas cadastradas.");
-      setEventoRecebimentos(null);
-      return;
-    }
-
-    const ids = receitas.map((r) => r.id);
-
-    const { data: parcelas, error: parcelasError } = await supabase
-      .from("event_revenue_receipts")
-      .select("*")
-      .in("event_revenue_id", ids)
-      .order("expected_receipt_date", { ascending: true });
-
-    if (parcelasError) {
-      console.error(parcelasError);
-      setEventoRecebimentos(null);
-      alert(`Erro ao carregar os recebimentos: ${parcelasError.message}`);
-      return;
-    }
-
-    const lista: RecebimentoParcela[] = [];
-
-    for (const receita of receitas) {
-      const existentes = (parcelas || []).filter(
-        (p) => p.event_revenue_id === receita.id
-      );
-
-      if (existentes.length > 0) {
-        for (const parcela of existentes) {
-          lista.push({
-            id: parcela.id,
-            event_revenue_id: parcela.event_revenue_id,
-            description: parcela.description || receita.description,
-            expected_amount: Number(parcela.expected_amount || 0),
-            actual_amount: Number(parcela.actual_amount || 0),
-            expected_receipt_date: parcela.expected_receipt_date || null,
-            actual_receipt_date: parcela.actual_receipt_date || null,
-            status: parcela.status,
-            payment_method: parcela.payment_method || "",
-            notes: parcela.notes || "",
-          });
-        }
-      } else if (
-        receita.status === "recebido" &&
-        Number(receita.actual_amount || 0) > 0
-      ) {
-        lista.push({
-          event_revenue_id: receita.id,
-          description: receita.description,
-          expected_amount: Number(receita.actual_amount || receita.expected_amount || 0),
-          actual_amount: Number(receita.actual_amount || 0),
-          expected_receipt_date: receita.expected_receipt_date || evento.event_date,
-          actual_receipt_date: receita.actual_receipt_date || null,
-          status: "recebido",
-          payment_method: "",
-          notes: "Recebimento legado",
-        });
-      } else {
-        lista.push({
-          event_revenue_id: receita.id,
-          description: receita.description,
-          expected_amount: Number(receita.expected_amount || 0),
-          actual_amount: 0,
-          expected_receipt_date: receita.expected_receipt_date || evento.event_date,
-          actual_receipt_date: null,
-          status: "pendente",
-          payment_method: "",
-          notes: "",
-        });
-      }
-    }
-
-    setRecebimentosParcelas(lista);
-  }
-
-  function adicionarParcelaRecebimento(eventRevenueId: string, description: string, defaultDate: string) {
-    setRecebimentosParcelas((atual) => [
-      ...atual,
-      {
-        event_revenue_id: eventRevenueId,
-        description: `${description} — Parcela`,
-        expected_amount: 0,
-        actual_amount: 0,
-        expected_receipt_date: defaultDate || null,
-        actual_receipt_date: null,
-        status: "pendente",
-        payment_method: "",
-        notes: "",
-      },
-    ]);
-  }
-
-  function atualizarParcelaRecebimento(
-    index: number,
-    alteracoes: Partial<RecebimentoParcela>
-  ) {
-    setRecebimentosParcelas((atual) =>
-      atual.map((item, i) => (i === index ? { ...item, ...alteracoes } : item))
-    );
-  }
-
-  function removerParcelaRecebimento(index: number) {
-    setRecebimentosParcelas((atual) => atual.filter((_, i) => i !== index));
-  }
-
-  async function salvarRecebimentosEvento() {
-    if (!eventoRecebimentos) return;
-
-    const porReceita = new Map<string, RecebimentoParcela[]>();
-
-    for (const parcela of recebimentosParcelas) {
-      if (parcela.expected_amount <= 0) {
-        alert(`Informe o valor previsto da parcela: ${parcela.description}.`);
-        return;
-      }
-
-      if (parcela.status === "recebido") {
-        if (parcela.actual_amount <= 0) {
-          alert(`Informe o valor recebido da parcela: ${parcela.description}.`);
-          return;
-        }
-        if (!parcela.actual_receipt_date) {
-          alert(`Informe a data do recebimento da parcela: ${parcela.description}.`);
-          return;
-        }
-      }
-
-      const lista = porReceita.get(parcela.event_revenue_id) || [];
-      lista.push(parcela);
-      porReceita.set(parcela.event_revenue_id, lista);
-    }
-
-    setSalvandoRecebimentos(true);
-
-    try {
-      const { data: receitas, error: receitasError } = await supabase
-        .from("event_revenues")
-        .select("id,expected_amount,confirmed")
-        .eq("event_id", eventoRecebimentos.id);
-
-      if (receitasError) throw receitasError;
-
-      for (const receita of receitas || []) {
-        const parcelasDaReceita = porReceita.get(receita.id) || [];
-
-        const { data: antigas, error: antigasError } = await supabase
-          .from("event_revenue_receipts")
           .select("id")
-          .eq("event_revenue_id", receita.id);
+          .single();
 
-        if (antigasError) throw antigasError;
-
-        const idsAtuais = parcelasDaReceita
-          .map((p) => p.id)
-          .filter(Boolean) as string[];
-
-        const idsRemovidos = (antigas || [])
-          .map((p: any) => p.id)
-          .filter((id: string) => !idsAtuais.includes(id));
-
-        if (idsRemovidos.length > 0) {
-          const { error } = await supabase
-            .from("event_revenue_receipts")
-            .delete()
-            .in("id", idsRemovidos);
-          if (error) throw error;
-        }
-
-        for (const p of parcelasDaReceita) {
-          const payload = {
-            event_revenue_id: p.event_revenue_id,
-            description: p.description,
-            expected_amount: Number(p.expected_amount || 0),
-            actual_amount: p.status === "recebido" ? Number(p.actual_amount || 0) : 0,
-            expected_receipt_date: p.expected_receipt_date,
-            actual_receipt_date: p.status === "recebido" ? p.actual_receipt_date : null,
-            status: p.status,
-            payment_method: p.payment_method || null,
-            notes: p.notes || null,
-          };
-
-          if (p.id) {
-            const { error } = await supabase
-              .from("event_revenue_receipts")
-              .update(payload)
-              .eq("id", p.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase
-              .from("event_revenue_receipts")
-              .insert(payload);
-            if (error) throw error;
-          }
-        }
-
-        const { data: recebidosAtualizados, error: somaError } = await supabase
-          .from("event_revenue_receipts")
-          .select("actual_amount,status")
-          .eq("event_revenue_id", receita.id);
-
-        if (somaError) throw somaError;
-
-        const totalRecebido = (recebidosAtualizados || [])
-          .filter((p: any) => p.status === "recebido")
-          .reduce((sum: number, p: any) => sum + Number(p.actual_amount || 0), 0);
-
-        const valorPrevistoReceita = Number(receita.expected_amount || 0);
-        const novoStatus =
-          totalRecebido <= 0
-            ? "pendente"
-            : totalRecebido >= valorPrevistoReceita
-              ? "recebido"
-              : "parcial";
-
-        const { error: receitaUpdateError } = await supabase
-          .from("event_revenues")
-          .update({
-            actual_amount: totalRecebido,
-            status: novoStatus,
-          })
-          .eq("id", receita.id);
-
-        if (receitaUpdateError) throw receitaUpdateError;
-      }
-
-      // Mantém também o resumo do evento sincronizado com as receitas.
-      const { data: receitasDoEvento, error: resumoEventoError } = await supabase
-        .from("event_revenues")
-        .select("expected_amount,actual_amount,status,confirmed,actual_receipt_date")
-        .eq("event_id", eventoRecebimentos.id);
-
-      if (resumoEventoError) throw resumoEventoError;
-
-      const receitasConfirmadas = (receitasDoEvento || []).filter(
-        (receita: any) => receita.confirmed !== false && receita.status !== "cancelado"
-      );
-
-      const totalPrevistoEvento = receitasConfirmadas.reduce(
-        (sum: number, receita: any) => sum + Number(receita.expected_amount || 0),
-        0
-      );
-
-      const totalRecebidoEvento = receitasConfirmadas.reduce(
-        (sum: number, receita: any) => sum + Number(receita.actual_amount || 0),
-        0
-      );
-
-      const datasRecebimentoEvento = receitasConfirmadas
-        .map((receita: any) => receita.actual_receipt_date)
-        .filter(Boolean)
-        .sort();
-
-      const statusEvento =
-        totalRecebidoEvento <= 0
-          ? "agendado"
-          : totalRecebidoEvento >= totalPrevistoEvento
-            ? "realizado"
-            : "agendado";
-
-      const { error: eventoResumoError } = await supabase
-        .from("events")
-        .update({
-          actual_amount: totalRecebidoEvento,
-          actual_receipt_date:
-            datasRecebimentoEvento.length > 0
-              ? datasRecebimentoEvento[datasRecebimentoEvento.length - 1]
-              : null,
-          status: statusEvento,
-        })
-        .eq("id", eventoRecebimentos.id);
-
-      if (eventoResumoError) throw eventoResumoError;
-
-      alert("Recebimentos salvos com sucesso!");
-      setEventoRecebimentos(null);
-      setRecebimentosParcelas([]);
-      await carregarEventos();
-    } catch (error: any) {
-      console.error(error);
-      alert(`Erro ao salvar recebimentos: ${error.message || "erro desconhecido"}`);
-    } finally {
-      setSalvandoRecebimentos(false);
-    }
-  }
-
-async function abrirFechamentoEvento(evento: Evento) {
-    setEventoFechando(evento);
-    setReceitasFechamento([]);
-
-    const { data, error } = await supabase
-      .from("event_revenues")
-      .select(
-        "id,description,expected_amount,actual_amount,confirmed,status,expected_receipt_date,actual_receipt_date,notes"
-      )
-      .eq("event_id", evento.id)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      console.error(error);
-      setEventoFechando(null);
-      alert(`Erro ao carregar as receitas do evento: ${error.message}`);
-      return;
-    }
-
-    if (!data || data.length === 0) {
-      setEventoFechando(null);
-      alert("Este evento não possui receitas cadastradas.");
-      return;
-    }
-
-    setReceitasFechamento(
-      data.map((receita) => ({
-        id: receita.id,
-        description: receita.description,
-        expected_amount: Number(receita.expected_amount || 0),
-        actual_amount: Number(receita.actual_amount || 0),
-        confirmed: Boolean(receita.confirmed),
-        status: receita.status as ReceitaEvento["status"],
-        expected_receipt_date: receita.expected_receipt_date || null,
-        actual_receipt_date: receita.actual_receipt_date || null,
-        notes: receita.notes || null,
-      }))
-    );
-  }
-
-  function atualizarReceitaFechamento(
-    id: string,
-    alteracoes: Partial<ReceitaEvento>
-  ) {
-    setReceitasFechamento((atual) =>
-      atual.map((receita) =>
-        receita.id === id ? { ...receita, ...alteracoes } : receita
-      )
-    );
-  }
-
-  const totalConfirmadoFechamento = useMemo(
-    () =>
-      receitasFechamento
-        .filter((receita) => receita.confirmed)
-        .reduce((total, receita) => total + Number(receita.expected_amount || 0), 0),
-    [receitasFechamento]
-  );
-
-  const totalRecebidoFechamento = useMemo(
-    () =>
-      receitasFechamento
-        .filter(
-          (receita) =>
-            receita.confirmed && receita.status === "recebido"
-        )
-        .reduce((total, receita) => total + Number(receita.actual_amount || 0), 0),
-    [receitasFechamento]
-  );
-
-  const totalAReceberFechamento =
-    totalConfirmadoFechamento - totalRecebidoFechamento;
-
-  async function salvarFechamentoEvento() {
-    if (!eventoFechando) return;
-
-    for (const receita of receitasFechamento) {
-      if (!receita.confirmed) continue;
-
-      if (receita.status === "recebido") {
-        if (Number(receita.actual_amount || 0) <= 0) {
-          alert(`Informe o valor recebido para: ${receita.description}.`);
-          return;
-        }
-
-        if (!receita.actual_receipt_date) {
-          alert(`Informe a data do recebimento para: ${receita.description}.`);
-          return;
-        }
-      }
-    }
-
-    setSalvandoFechamento(true);
-
-    try {
-      for (const receita of receitasFechamento) {
-        const atualizacao = !receita.confirmed
-          ? {
-              confirmed: false,
-              status: "cancelado" as const,
-              actual_amount: 0,
-              actual_receipt_date: null,
-            }
-          : receita.status === "recebido"
-            ? {
-                confirmed: true,
-                status: "recebido" as const,
-                actual_amount: Number(receita.actual_amount || 0),
-                actual_receipt_date: receita.actual_receipt_date,
-              }
-            : {
-                confirmed: true,
-                status: "pendente" as const,
-                actual_amount: 0,
-                actual_receipt_date: null,
-              };
-
-        const { error } = await supabase
-          .from("event_revenues")
-          .update(atualizacao)
-          .eq("id", receita.id);
-
-        if (error) {
-          console.error(error);
+        if (error || !criado) {
           throw new Error(
-            `Erro ao atualizar ${receita.description}: ${error.message}`
+            error?.code === "23505"
+              ? "Já existe esse evento recorrente nessa data."
+              : error?.message || "Evento não criado."
           );
         }
-      }
 
-      const receitasAtualizadas = receitasFechamento.map((receita) =>
-        !receita.confirmed
-          ? { ...receita, confirmed: false, status: "cancelado" as const, actual_amount: 0, actual_receipt_date: null }
-          : receita.status === "recebido"
-            ? { ...receita, confirmed: true, status: "recebido" as const, actual_amount: Number(receita.actual_amount || 0) }
-            : { ...receita, confirmed: true, status: "pendente" as const, actual_amount: 0, actual_receipt_date: null }
-      );
+        eventId = criado.id;
 
-      const totalRecebido = receitasAtualizadas
-        .filter((receita) => receita.confirmed && receita.status === "recebido")
-        .reduce((total, receita) => total + Number(receita.actual_amount || 0), 0);
+        try {
+          const linhas = template
+            ? await receitasDoTemplate(template, eventId, form.data)
+            : [
+                {
+                  event_id: eventId,
+                  description: "Evento",
+                  expected_amount: valor,
+                  actual_amount: 0,
+                  confirmed: true,
+                  status: "pendente",
+                  expected_receipt_date: form.dataRestante || form.data,
+                },
+              ];
 
-      const datasRecebimento = receitasAtualizadas
-        .filter((receita) => receita.confirmed && receita.status === "recebido" && receita.actual_receipt_date)
-        .map((receita) => receita.actual_receipt_date as string)
-        .sort();
+          if (!template && linhas.length === 1) linhas[0].expected_amount = valor;
 
-      const ultimaDataRecebimento =
-        datasRecebimento.length > 0
-          ? datasRecebimento[datasRecebimento.length - 1]
-          : null;
+          const { data: recCriadas, error: recErro } = await supabase
+            .from("event_revenues")
+            .insert(linhas)
+            .select("id,description");
+          if (recErro || !recCriadas?.length) throw recErro || new Error("Receita não criada.");
 
-      const { error: eventoError } = await supabase
-        .from("events")
-        .update({
-          actual_amount: totalRecebido,
-          actual_receipt_date: ultimaDataRecebimento,
-          status: "realizado",
-        })
-        .eq("id", eventoFechando.id);
+          const principal =
+            recCriadas.find((r) => r.description === "Evento") || recCriadas[0];
 
-      if (eventoError) {
-        console.error(eventoError);
-        throw new Error(`Erro ao fechar o evento: ${eventoError.message}`);
-      }
-
-      // O fechamento também precisa deixar um registro de caixa por recebimento.
-      // Se o evento já possui parcelas, elas são preservadas para não duplicar histórico.
-      for (const receita of receitasAtualizadas) {
-        if (
-          !receita.confirmed ||
-          receita.status !== "recebido" ||
-          Number(receita.actual_amount || 0) <= 0
-        ) {
-          continue;
-        }
-
-        const { data: parcelasExistentes, error: parcelasBuscaError } = await supabase
-          .from("event_revenue_receipts")
-          .select("id,actual_amount,status")
-          .eq("event_revenue_id", receita.id);
-
-        if (parcelasBuscaError) throw parcelasBuscaError;
-
-        const totalParcelasRecebidas = (parcelasExistentes || [])
-          .filter((parcela: any) => parcela.status === "recebido")
-          .reduce(
-            (sum: number, parcela: any) => sum + Number(parcela.actual_amount || 0),
-            0
-          );
-
-        // Se já existe sinal/alguma parcela, não podemos simplesmente parar aqui.
-        // O valor marcado como recebido na receita precisa estar totalmente
-        // representado nas parcelas, porque o Caixa usa essas parcelas como
-        // origem do dinheiro efetivamente recebido.
-        const valorTotalReceita = Number(
-          receita.actual_amount || receita.expected_amount || 0
-        );
-
-        const diferencaRecebimento = Number(
-          (valorTotalReceita - totalParcelasRecebidas).toFixed(2)
-        );
-
-        if (diferencaRecebimento > 0) {
-          const { error: parcelaInsertError } = await supabase
-            .from("event_revenue_receipts")
-            .insert({
-              event_revenue_id: receita.id,
-              description:
-                totalParcelasRecebidas > 0
-                  ? "Saldo final"
-                  : receita.description,
-              expected_amount: diferencaRecebimento,
-              actual_amount: diferencaRecebimento,
-              expected_receipt_date:
-                receita.expected_receipt_date || eventoFechando.event_date,
-              actual_receipt_date:
-                receita.actual_receipt_date || eventoFechando.event_date,
+          const novasParcelas: any[] = [];
+          if (sinal > 0) {
+            novasParcelas.push({
+              event_revenue_id: principal.id,
+              description: "Sinal",
+              expected_amount: sinal,
+              actual_amount: sinal,
+              expected_receipt_date: form.dataSinal,
+              actual_receipt_date: form.dataSinal,
               status: "recebido",
               payment_method: null,
-              notes:
-                totalParcelasRecebidas > 0
-                  ? "Complemento automático para completar o valor recebido do evento."
-                  : "Recebimento registrado no fechamento do evento",
+              notes: "Sinal informado no cadastro do evento",
             });
+          }
+          if (!template && valor - sinal > 0) {
+            novasParcelas.push({
+              event_revenue_id: principal.id,
+              description: "Saldo final",
+              expected_amount: valor - sinal,
+              actual_amount: 0,
+              expected_receipt_date: form.dataRestante || form.data,
+              actual_receipt_date: null,
+              status: "pendente",
+              payment_method: null,
+              notes: null,
+            });
+          }
+          if (novasParcelas.length) {
+            const { error: parErro } = await supabase.from("event_revenue_receipts").insert(novasParcelas);
+            if (parErro) throw parErro;
+          }
 
-          if (parcelaInsertError) throw parcelaInsertError;
+          if (sinal > 0) {
+            await supabase
+              .from("event_revenues")
+              .update({ actual_amount: sinal, status: "parcial" })
+              .eq("id", principal.id);
+          }
+        } catch (e) {
+          // Não deixa evento "pela metade"
+          await supabase.from("events").delete().eq("id", eventId);
+          throw e;
+        }
+      } else {
+        // ------------------- EDIÇÃO -------------------
+        eventId = editando.id;
+        const fin = resumoFinanceiro(editando);
+
+        const atualizacao: Record<string, any> = {
+          name: form.nome.trim(),
+          event_date: form.data,
+          event_time: form.horario || null,
+          location: form.local.trim() || null,
+          expected_receipt_date: form.dataRestante || null,
+          notes: notas,
+        };
+        if (!valorBloqueado) atualizacao.expected_amount = valor;
+
+        const { error } = await supabase.from("events").update(atualizacao).eq("id", eventId);
+        if (error) throw error;
+
+        const principal =
+          fin.receitas.find((r) => r.description === "Evento") || fin.receitas[0] || null;
+
+        if (principal) {
+          const valorPrincipal = valorBloqueado ? Number(principal.expected_amount || 0) : valor;
+
+          if (!valorBloqueado && fin.receitas.length === 1) {
+            const { error: e1 } = await supabase
+              .from("event_revenues")
+              .update({ expected_amount: valor, expected_receipt_date: form.dataRestante || null })
+              .eq("id", principal.id);
+            if (e1) throw e1;
+          }
+
+          // Sinal
+          const sinaisAtuais = fin.parcelas.filter((p) => ehSinal(p.description));
+          if (sinal > 0) {
+            const dados = {
+              expected_amount: sinal,
+              actual_amount: sinal,
+              expected_receipt_date: form.dataSinal,
+              actual_receipt_date: form.dataSinal,
+              status: "recebido",
+            };
+            if (sinaisAtuais.length > 0) {
+              const { error: e2 } = await supabase
+                .from("event_revenue_receipts")
+                .update(dados)
+                .eq("id", sinaisAtuais[0].id);
+              if (e2) throw e2;
+              if (sinaisAtuais.length > 1) {
+                await supabase
+                  .from("event_revenue_receipts")
+                  .delete()
+                  .in("id", sinaisAtuais.slice(1).map((p) => p.id));
+              }
+            } else {
+              const { error: e3 } = await supabase.from("event_revenue_receipts").insert({
+                event_revenue_id: principal.id,
+                description: "Sinal",
+                ...dados,
+                payment_method: null,
+                notes: "Sinal informado no cadastro do evento",
+              });
+              if (e3) throw e3;
+            }
+          } else if (sinaisAtuais.length > 0) {
+            const { error: e4 } = await supabase
+              .from("event_revenue_receipts")
+              .delete()
+              .in("id", sinaisAtuais.map((p) => p.id));
+            if (e4) throw e4;
+          }
+
+          // Restante ainda pendente
+          const pendente = fin.parcelas.find(
+            (p) =>
+              p.event_revenue_id === principal.id &&
+              !ehSinal(p.description) &&
+              p.status !== "recebido"
+          );
+          if (pendente) {
+            await supabase
+              .from("event_revenue_receipts")
+              .update({
+                expected_amount: Math.max(valorPrincipal - sinal, 0),
+                expected_receipt_date: form.dataRestante || null,
+              })
+              .eq("id", pendente.id);
+          }
+
+          // Total recebido da receita = parcelas recebidas
+          const { data: recebidas } = await supabase
+            .from("event_revenue_receipts")
+            .select("actual_amount,status")
+            .eq("event_revenue_id", principal.id)
+            .eq("status", "recebido");
+          const recebido = (recebidas || []).reduce(
+            (s: number, p: any) => s + Number(p.actual_amount || 0),
+            0
+          );
+          await supabase
+            .from("event_revenues")
+            .update({
+              actual_amount: recebido,
+              status:
+                principal.status === "recebido" || principal.status === "cancelado"
+                  ? principal.status
+                  : recebido > 0
+                    ? "parcial"
+                    : "pendente",
+            })
+            .eq("id", principal.id);
         }
       }
 
-      alert(
-        `Evento fechado com sucesso!\n\nConfirmado: ${formatarMoeda(totalConfirmadoFechamento)}\nRecebido: ${formatarMoeda(totalRecebido)}\nA receber: ${formatarMoeda(totalConfirmadoFechamento - totalRecebido)}`
-      );
+      const google = await sincronizarGoogle(eventId);
 
-      setEventoFechando(null);
-      setReceitasFechamento([]);
+      setMensagem(`Evento ${editando ? "atualizado" : "cadastrado"}${google}.`);
+      setFormAberto(false);
+      setEditando(null);
+      setForm(FORM_VAZIO);
       await carregarEventos();
-    } catch (error) {
-      console.error(error);
-      alert(error instanceof Error ? error.message : "Erro ao fechar o evento.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e: any) {
+      console.error(e);
+      setErro(e?.message || "Não foi possível salvar o evento.");
     } finally {
-      setSalvandoFechamento(false);
+      setSalvando(false);
     }
   }
 
-  async function excluirEvento(
-    id: string,
-    nomeEvento: string
-  ) {
-    const confirmar = confirm(
-      `Deseja excluir o evento "${nomeEvento}"?`
-    );
+  async function excluir(evento: Evento) {
+    if (
+      !window.confirm(
+        `Excluir o evento "${evento.name}" de ${dataBR(evento.event_date)}?\n\nEle também será removido da Agenda do Google.`
+      )
+    )
+      return;
 
-    if (!confirmar) return;
+    setErro("");
+    setMensagem("");
 
-    const { error } = await supabase
-      .from("events")
-      .delete()
-      .eq("id", id);
+    try {
+      await fetch(`/api/google/calendar?eventId=${encodeURIComponent(evento.id)}`, {
+        method: "DELETE",
+      });
+    } catch (e) {
+      console.error("Erro ao remover do Google:", e);
+    }
+
+    const { error } = await supabase.from("events").delete().eq("id", evento.id);
 
     if (error) {
       console.error(error);
-      alert("Erro ao excluir o evento.");
+      setErro("Erro ao excluir o evento.");
       return;
     }
 
+    setMensagem("Evento excluído.");
     await carregarEventos();
   }
 
+  // ---------------------------------------------------------
+  // TELA
+  // ---------------------------------------------------------
+  const valorNum = numero(form.valor);
+  const sinalNum = numero(form.sinal);
+  const temSinal = Number.isFinite(sinalNum) && sinalNum > 0;
+
+  const campo =
+    "w-full rounded-lg border border-slate-400 bg-white px-3 py-2.5 text-base text-slate-900 outline-none focus:border-slate-800 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400";
+  const rotulo = "mb-1 block text-sm font-semibold text-slate-800";
+
   return (
-    <main className="min-h-screen bg-slate-100 p-6">
+    <main className="min-h-screen bg-slate-100 p-3 text-slate-800 sm:p-6">
       <div className="mx-auto max-w-7xl">
-
         {/* CABEÇALHO */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-slate-800">
-              Eventos
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Controle de eventos, receitas e pagamentos da banda
+            <h1 className="text-2xl font-bold sm:text-3xl">Eventos</h1>
+            <p className="text-sm text-slate-600">
+              Agenda de shows, valores e contato do responsável.
             </p>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex w-full gap-2 sm:w-auto">
             <a
               href="/api/google/auth"
-              className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-red-700"
+              className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-xs font-bold text-slate-700 sm:flex-none sm:text-sm"
             >
               Conectar Google Agenda
             </a>
-
             <button
-              onClick={novoEvento}
-              className="rounded-lg bg-slate-800 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-slate-700"
+              onClick={abrirNovo}
+              className="flex-1 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white sm:flex-none"
             >
               + Novo evento
             </button>
           </div>
         </div>
 
-        {/* RECURRÊNCIA AUTOMÁTICA */}
-        <section className="mb-6 rounded-xl border border-blue-200 bg-white shadow-sm">
-
-          <div className="border-b border-blue-100 bg-blue-50 p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  Eventos recorrentes
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-600">
-                  O sistema cria automaticamente as próximas 4 ocorrências de cada evento ativo.
-                </p>
-              </div>
-
-              <button
-                onClick={() => gerarProximasOcorrencias()}
-                disabled={gerandoRecorrencias}
-                className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {gerandoRecorrencias
-                  ? "Gerando..."
-                  : "Atualizar próximas ocorrências"}
-              </button>
-            </div>
-
-            {mensagemRecorrencia && (
-              <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3 text-sm font-semibold text-blue-700">
-                {mensagemRecorrencia}
-              </div>
-            )}
+        {mensagem && (
+          <div className="mb-3 rounded-lg border border-green-300 bg-green-50 p-3 text-sm font-semibold text-green-800">
+            {mensagem}
           </div>
-
-          <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
-            {templates.map((template) => (
-              <div
-                key={template.id}
-                className="rounded-xl border border-slate-200 bg-slate-50 p-5"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-800">
-                      {nomePadraoEvento(template.name)}
-                    </h3>
-
-                    <p className="text-sm text-slate-500">
-                      {textoDiaSemana(Number(template.weekday))}
-                    </p>
-
-                    <p className="mt-1 text-xs font-semibold text-slate-400">
-                      {localPadraoEvento(
-                        template.name,
-                        template.location
-                      )}
-                    </p>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-xs text-slate-500">
-                      Total padrão
-                    </p>
-                    <p className="text-xl font-bold text-green-600">
-                      {formatarMoeda(template.default_amount)}
-                    </p>
-                  </div>
-                </div>
-
-                {template.name.trim().toLowerCase() === "miami" && (
-                  <div className="mt-4 rounded-lg bg-white p-3 text-sm">
-                    <div className="flex justify-between">
-                      <span>Evento</span>
-                      <strong>R$ 1.300,00</strong>
-                    </div>
-                    <div className="mt-1 flex justify-between">
-                      <span>Aluguel de som</span>
-                      <strong>R$ 400,00</strong>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+        )}
+        {erro && !formAberto && (
+          <div className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-700">
+            {erro}
           </div>
-        </section>
+        )}
 
         {/* FORMULÁRIO */}
-        {mostrarFormulario && (
+        {formAberto && (
           <section
-            ref={formularioRef}
-            className="mb-6 scroll-mt-24 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+            ref={formRef}
+            className="mb-4 scroll-mt-16 rounded-xl border border-slate-300 bg-white p-3 shadow-sm sm:p-5"
           >
-
-            <div className="mb-5 flex items-center justify-between">
+            <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  {eventoEditando ? "Editar evento" : "Novo evento"}
-                </h2>
-
-                <p className="text-sm text-slate-500">
-                  {eventoEditando
-                    ? "Altere os dados do evento e salve as mudanças."
-                    : "Cadastre um evento particular ou uma ocorrência recorrente."}
+                <h2 className="text-lg font-bold">{editando ? "Editar evento" : "Novo evento"}</h2>
+                <p className="text-xs text-slate-600">
+                  {editando
+                    ? "Corrija o que precisar e salve. A Agenda do Google é atualizada junto."
+                    : "O evento é enviado automaticamente para a Agenda do Google."}
                 </p>
               </div>
-
               <button
-                onClick={cancelarFormulario}
-                className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200"
+                onClick={() => {
+                  setFormAberto(false);
+                  setEditando(null);
+                  setErro("");
+                }}
+                className="rounded-lg px-3 py-1.5 text-sm font-bold text-slate-500 hover:bg-slate-100"
               >
-                Cancelar
+                Fechar
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  Tipo de evento
-                </label>
-
-                <select
-                  value={templateSelecionado}
-                  disabled={Boolean(eventoEditando)}
-                  onChange={(e) =>
-                    selecionarTemplate(e.target.value)
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                >
-                  <option value="">
-                    Evento particular
-                  </option>
-
-                  {templates.map((template) => (
-                    <option
-                      key={template.id}
-                      value={template.id}
-                    >
-                      {nomePadraoEvento(template.name)}
-                    </option>
-                  ))}
-                </select>
+            {erro && (
+              <div className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                {erro}
               </div>
+            )}
 
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  Nome do evento
-                </label>
-
-                <input
-                  value={nome}
-                  onChange={(e) =>
-                    setNome(e.target.value)
-                  }
-                  placeholder="Ex.: Aniversário João"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  Data do evento
-                </label>
-
-                <input
-                  type="date"
-                  value={dataEvento}
-                  onChange={(e) =>
-                    alterarDataEvento(e.target.value)
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  Horário
-                </label>
-                <input
-                  type="time"
-                  value={horarioEvento}
-                  onChange={(e) => setHorarioEvento(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  Local
-                </label>
-
-                <input
-                  value={local}
-                  onChange={(e) =>
-                    setLocal(e.target.value)
-                  }
-                  placeholder="Local do evento"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                />
-              </div>
-
-              {!eventoEditando && !templateSelecionado ? (
-                <div className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <div className="mb-4">
-                    <h3 className="text-base font-bold text-slate-800">Financeiro do evento</h3>
-                    <p className="text-xs text-slate-500">Informe o valor total, o sinal já pago e quando o restante será recebido.</p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Valor total do evento</label>
-                      <input type="number" step="0.01" value={valorTotalEvento} onChange={(e) => setValorTotalEvento(e.target.value)} placeholder="0,00" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500" />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Sinal já pago</label>
-                      <input type="number" step="0.01" value={valorSinal} onChange={(e) => setValorSinal(e.target.value)} placeholder="0,00" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500" />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Data do pagamento do sinal</label>
-                      <input type="date" value={dataPagamentoSinal} onChange={(e) => setDataPagamentoSinal(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500" />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Data do pagamento do saldo</label>
-                      <input type="date" value={dataPagamentoSaldo} onChange={(e) => setDataPagamentoSaldo(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500" />
-                    </div>
-                  </div>
-                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <div className="rounded-lg bg-white p-3"><span className="text-xs font-semibold text-slate-500">Valor total</span><strong className="mt-1 block text-lg text-slate-800">{moeda(Number(valorTotalEvento || 0))}</strong></div>
-                    <div className="rounded-lg bg-white p-3"><span className="text-xs font-semibold text-slate-500">Sinal</span><strong className="mt-1 block text-lg text-green-600">{moeda(Number(valorSinal || 0))}</strong></div>
-                    <div className="rounded-lg bg-white p-3"><span className="text-xs font-semibold text-slate-500">Saldo restante</span><strong className="mt-1 block text-lg text-blue-600">{moeda(Math.max(0, Number(valorTotalEvento || 0) - Number(valorSinal || 0)))}</strong></div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Valor previsto</label>
-                    <input type="number" step="0.01" value={valorPrevisto} onChange={(e) => setValorPrevisto(e.target.value)} placeholder="0,00" className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Recebimento previsto</label>
-                    <input type="date" value={dataRecebimento} onChange={(e) => setDataRecebimento(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500" />
-                  </div>
-                </>
-              )}
-
-              {eventoEditando && (
-                <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">Financeiro</p>
-                      <p className="text-xs text-slate-500">
-                        Para alterar sinal, saldo ou recebimentos, use o botão Recebimentos do evento.
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-slate-500">Valor total</p>
-                      <p className="text-lg font-bold text-slate-800">{formatarMoeda(Number((templateSelecionado ? valorPrevisto : valorTotalEvento).replace(",", ".") || 0))}</p>
-                    </div>
-                  </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {!editando && templates.length > 0 && (
+                <div className="md:col-span-2">
+                  <label className={rotulo}>Tipo de evento</label>
+                  <select
+                    value={form.templateId}
+                    onChange={(e) => escolherTemplate(e.target.value)}
+                    className={campo}
+                  >
+                    <option value="">Evento particular</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} (recorrente)
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-semibold text-slate-700">
-                  Observações
-                </label>
-
-                <textarea
-                  value={observacoes}
-                  onChange={(e) =>
-                    setObservacoes(e.target.value)
-                  }
-                  placeholder="Observações do evento..."
-                  rows={3}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
+                <label className={rotulo}>Nome do evento</label>
+                <input
+                  value={form.nome}
+                  onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                  placeholder="Ex.: Aniversário da Maria"
+                  className={campo}
                 />
               </div>
 
-            </div>
+              <div>
+                  <label className={rotulo}>Data</label>
+                  <input
+                    type="date"
+                    value={form.data}
+                    onChange={(e) => {
+                      const data = e.target.value;
+                      const t = templates.find((x) => x.id === form.templateId);
+                      setForm((f) => ({
+                        ...f,
+                        data,
+                        dataRestante:
+                          !editando && t && data
+                            ? adicionarDias(data, Number(t.receipt_days_after || 0))
+                            : f.dataRestante || (!editando ? data : f.dataRestante),
+                      }));
+                    }}
+                    className={campo}
+                  />
+              </div>
 
-            <div className="mt-5 flex justify-end">
-              <button
-                onClick={salvarEvento}
-                disabled={carregando}
-                className="rounded-lg bg-green-600 px-6 py-3 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
-              >
-                {carregando
-                  ? "Salvando..."
-                  : "Salvar evento"}
-              </button>
-            </div>
+              <div>
+                <label className={rotulo}>Horário</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    aria-label="Horário de início"
+                    value={form.horario}
+                    onChange={(e) => setForm({ ...form, horario: e.target.value })}
+                    className={campo}
+                  />
+                  <span className="shrink-0 text-sm font-semibold text-slate-600">às</span>
+                  <input
+                    type="time"
+                    aria-label="Horário de término"
+                    value={form.termino}
+                    onChange={(e) => setForm({ ...form, termino: e.target.value })}
+                    className={campo}
+                  />
+                </div>
+                {form.horario && form.termino && form.termino <= form.horario && (
+                  <p className="mt-1 text-xs text-slate-600">Termina no dia seguinte.</p>
+                )}
+              </div>
 
-          </section>
-        )}
-{mostrarMusicos && eventoSelecionado && (
-  <section className="mb-6 rounded-xl border border-blue-200 bg-white shadow-sm">
-    <div className="border-b border-blue-100 bg-blue-50 p-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800">
-            Músicos do evento
-          </h2>
+              <div className="md:col-span-2">
+                <label className={rotulo}>Local</label>
+                <input
+                  value={form.local}
+                  onChange={(e) => setForm({ ...form, local: e.target.value })}
+                  placeholder="Ex.: Salão do clube"
+                  className={campo}
+                />
+              </div>
 
-          <p className="mt-1 text-sm text-slate-500">
-            {eventoSelecionado.name} —{" "}
-            {formatarData(eventoSelecionado.event_date)}
-          </p>
-        </div>
+              {/* FINANCEIRO */}
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 md:col-span-2">
+                <p className="mb-2 text-sm font-bold text-blue-900">Valores</p>
 
-        <button
-          type="button"
-          onClick={() => {
-            setMostrarMusicos(false);
-            setEventoSelecionado(null);
-            setMusicosEvento([]);
-          }}
-          className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-300"
-        >
-          Fechar
-        </button>
-      </div>
-    </div>
-
-    <div className="p-5">
-
-      <div className="mb-5 rounded-lg bg-slate-50 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-slate-700">
-              Músicos selecionados
-            </p>
-
-            <p className="text-xs text-slate-500">
-              Selecione os músicos e os instrumentos que eles farão neste evento.
-            </p>
-          </div>
-
-          <div className="text-right">
-            <p className="text-2xl font-bold text-slate-800">
-              {musicosEvento.filter(
-                (musico) =>
-                  musico.instrumentosSelecionados.length > 0
-              ).length}
-            </p>
-
-            <p className="text-xs text-slate-500">
-              músicos
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-
-        {musicosEvento.map((musico, index) => {
-          const selecionado =
-            musico.instrumentosSelecionados.length > 0;
-
-          return (
-            <div
-              key={musico.musician_id}
-              className={`rounded-xl border p-4 ${
-                selecionado
-                  ? "border-blue-300 bg-blue-50/40"
-                  : "border-slate-200 bg-white"
-              }`}
-            >
-
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-
-                <div className="flex-1">
-
-                  <label className="flex cursor-pointer items-center gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className={rotulo}>Valor cobrado</label>
                     <input
-                      type="checkbox"
-                      checked={selecionado}
-                      onChange={(e) => {
-                        setMusicosEvento((atual) =>
-                          atual.map((item, i) => {
-                            if (i !== index) return item;
-
-                            if (e.target.checked) {
-                              return {
-                                ...item,
-                                instrumentosSelecionados:
-                                  item.instrumentosSelecionados.length > 0
-                                    ? item.instrumentosSelecionados
-                                    : item.instrumentos.length > 0
-                                      ? [item.instrumentos[0].id]
-                                      : [],
-                              };
-                            }
-
-                            return {
-                              ...item,
-                              instrumentosSelecionados: [],
-                            };
-                          })
-                        );
-                      }}
-                      className="h-5 w-5 rounded border-slate-300"
+                      inputMode="decimal"
+                      value={form.valor}
+                      disabled={valorBloqueado}
+                      onChange={(e) => setForm({ ...form, valor: e.target.value })}
+                      placeholder="Ex.: 2.500,00"
+                      className={campo}
                     />
-
-                    <span className="text-lg font-bold text-slate-800">
-                      {musico.musician_name}
-                    </span>
-                  </label>
-
-                  <div className="mt-3">
-
-                    <p className="mb-2 text-sm font-semibold text-slate-600">
-                      Instrumentos neste evento
-                    </p>
-
-                    {musico.instrumentos.length === 0 ? (
-                      <p className="text-sm text-red-500">
-                        Nenhum instrumento cadastrado para este músico.
+                    {valorBloqueado && (
+                      <p className="mt-1 text-xs text-slate-600">
+                        Este evento tem mais de uma receita (ex.: evento + aluguel de som); o valor vem
+                        delas.
                       </p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {musico.instrumentos.map((instrumento) => {
-                          const marcado =
-                            musico.instrumentosSelecionados.includes(
-                              instrumento.id
-                            );
-
-                          return (
-                            <label
-                              key={instrumento.id}
-                              className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                                marcado
-                                  ? "border-blue-300 bg-blue-100 text-blue-800"
-                                  : "border-slate-200 bg-white text-slate-600"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={marcado}
-                                onChange={() => {
-                                  setMusicosEvento((atual) =>
-                                    atual.map((item, i) => {
-                                      if (i !== index) return item;
-
-                                      const instrumentosAtuais =
-                                        item.instrumentosSelecionados;
-
-                                      const novosInstrumentos =
-                                        marcado
-                                          ? instrumentosAtuais.filter(
-                                              (id) =>
-                                                id !== instrumento.id
-                                            )
-                                          : [
-                                              ...instrumentosAtuais,
-                                              instrumento.id,
-                                            ];
-
-                                      return {
-                                        ...item,
-                                        instrumentosSelecionados:
-                                          novosInstrumentos,
-                                      };
-                                    })
-                                  );
-                                }}
-                                className="h-4 w-4 rounded border-slate-300"
-                              />
-
-                              {instrumento.name}
-                            </label>
-                          );
-                        })}
-                      </div>
                     )}
                   </div>
-                </div>
 
-                <div className="w-full lg:w-72">
-
-                  <div className="rounded-lg border border-slate-200 bg-white p-4">
-
-                    <p className="text-sm font-semibold text-slate-700">
-                      Cachê
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Cadastrado:{" "}
-                      {formatarMoeda(musico.default_cache)}
-                    </p>
-
-                    <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={!musico.use_default_cache}
-                        onChange={(e) => {
-                          setMusicosEvento((atual) =>
-                            atual.map((item, i) => {
-                              if (i !== index) return item;
-
-                              const alterar = e.target.checked;
-
-                              return {
-                                ...item,
-                                use_default_cache: !alterar,
-                                event_cache: alterar
-                                  ? item.event_cache
-                                  : item.default_cache,
-                              };
-                            })
-                          );
-                        }}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-
-                      Alterar cachê deste evento
-                    </label>
-
-                    {!musico.use_default_cache ? (
-                      <div className="mt-3">
-                        <label className="mb-1 block text-xs font-semibold text-slate-600">
-                          Cachê neste evento
-                        </label>
-
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={musico.event_cache}
-                          onChange={(e) => {
-                            const valor = Number(
-                              e.target.value
-                            );
-
-                            setMusicosEvento((atual) =>
-                              atual.map((item, i) =>
-                                i === index
-                                  ? {
-                                      ...item,
-                                      event_cache: valor,
-                                    }
-                                  : item
-                              )
-                            );
-                          }}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500"
-                        />
-                      </div>
-                    ) : (
-                      <div className="mt-3 rounded-lg bg-green-50 px-3 py-2">
-                        <p className="text-xs text-green-700">
-                          Cachê deste evento
-                        </p>
-
-                        <p className="text-lg font-bold text-green-700">
-                          {formatarMoeda(
-                            musico.default_cache
-                          )}
-                        </p>
-                      </div>
-                    )}
-
-                  </div>
-<div className="mt-4 border-t border-slate-200 pt-4">
-  <p className="text-sm font-semibold text-slate-700 mb-2">
-    Pagamento
-  </p>
-
-  <div className="flex items-center gap-3">
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-        musico.payment_status === "pago"
-          ? "bg-green-100 text-green-700"
-          : "bg-yellow-100 text-yellow-700"
-      }`}
-    >
-      {musico.payment_status === "pago" ? "Pago" : "Pendente"}
-    </span>
-
-    <button
-      type="button"
-      onClick={async () => {
-        const novoStatus =
-          musico.payment_status === "pago" ? "pendente" : "pago";
-
-        const { error } = await supabase
-          .from("event_musicians")
-          .update({
-            payment_status: novoStatus,
-            payment_date:
-              novoStatus === "pago"
-                ? new Date().toISOString().split("T")[0]
-                : null,
-          })
-          .eq("id", musico.id);
-
-        if (error) {
-          console.error(error);
-          alert("Erro ao atualizar o pagamento.");
-          return;
-        }
-
-        setMusicosEvento((atual) =>
-          atual.map((item, i) =>
-            i === index
-              ? {
-                  ...item,
-                  payment_status: novoStatus,
-                  payment_date:
-                    novoStatus === "pago"
-                      ? new Date().toISOString().split("T")[0]
-                      : null,
-                }
-              : item
-          )
-        );
-      }}
-      className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-        musico.payment_status === "pago"
-          ? "bg-slate-200 text-slate-700 hover:bg-slate-300"
-          : "bg-green-100 text-green-700 hover:bg-green-200"
-      }`}
-    >
-      {musico.payment_status === "pago"
-        ? "Voltar para pendente"
-        : "Marcar como pago"}
-    </button>
-  </div>
-
-  {musico.payment_status === "pago" && musico.payment_date && (
-    <p className="mt-2 text-xs text-slate-500">
-      Pago em {formatarData(musico.payment_date)}
-    </p>
-  )}
-</div>
-                </div>
-
-              </div>
-
-            </div>
-          );
-        })}
-
-      </div>
-
-      <div className="mt-6 flex flex-col gap-4 rounded-xl bg-slate-800 p-5 text-white md:flex-row md:items-center md:justify-between">
-
-        <div>
-          <p className="text-sm text-slate-300">
-            Total dos músicos selecionados
-          </p>
-
-          <p className="text-2xl font-bold">
-            {formatarMoeda(
-              musicosEvento
-                .filter(
-                  (musico) =>
-                    musico.instrumentosSelecionados.length > 0
-                )
-                .reduce(
-                  (total, musico) =>
-                    total +
-                    Number(
-                      musico.use_default_cache
-                        ? musico.default_cache
-                        : musico.event_cache
-                    ),
-                  0
-                )
-            )}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={salvarMusicosEvento}
-          disabled={salvandoMusicos}
-          className="rounded-lg bg-green-500 px-6 py-3 text-sm font-bold text-white hover:bg-green-600 disabled:opacity-50"
-        >
-          {salvandoMusicos
-            ? "Salvando..."
-            : "Salvar músicos do evento"}
-        </button>
-
-      </div>
-
-    </div>
-  </section>
-)}
-
-{eventoRecebimentos && (
-  <section
-    ref={recebimentosRef}
-    className="mb-6 scroll-mt-24 rounded-xl border border-violet-200 bg-white shadow-sm"
-  >
-    <div className="flex items-center justify-between border-b border-violet-200 bg-violet-50 px-5 py-4">
-      <div>
-        <h2 className="text-xl font-bold text-slate-800">Recebimentos</h2>
-        <p className="text-sm text-slate-500">
-          {eventoRecebimentos.name} — {formatarData(eventoRecebimentos.event_date)}
-        </p>
-      </div>
-
-      <button
-        onClick={() => {
-          setEventoRecebimentos(null);
-          setRecebimentosParcelas([]);
-        }}
-        className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-300"
-      >
-        Fechar
-      </button>
-    </div>
-
-    <div className="p-5">
-      <div className="mb-5 rounded-xl bg-slate-800 p-5 text-white">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div>
-            <p className="text-xs uppercase text-slate-300">Total previsto</p>
-            <p className="mt-1 text-xl font-bold">
-              {formatarMoeda(
-                recebimentosParcelas.reduce((s, p) => s + Number(p.expected_amount || 0), 0)
-              )}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase text-slate-300">Recebido</p>
-            <p className="mt-1 text-xl font-bold text-green-300">
-              {formatarMoeda(
-                recebimentosParcelas
-                  .filter((p) => p.status === "recebido")
-                  .reduce((s, p) => s + Number(p.actual_amount || 0), 0)
-              )}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase text-slate-300">A receber</p>
-            <p className="mt-1 text-xl font-bold text-yellow-300">
-              {formatarMoeda(
-                recebimentosParcelas
-                  .reduce((s, p) => s + Number(p.expected_amount || 0), 0) -
-                recebimentosParcelas
-                  .filter((p) => p.status === "recebido")
-                  .reduce((s, p) => s + Number(p.actual_amount || 0), 0)
-              )}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {recebimentosParcelas.map((parcela, index) => (
-          <div key={`${parcela.event_revenue_id}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-6">
-              <div className="xl:col-span-2">
-                <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Descrição
-                </label>
-                <input
-                  value={parcela.description}
-                  onChange={(e) =>
-                    atualizarParcelaRecebimento(index, { description: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Valor previsto
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={parcela.expected_amount}
-                  onChange={(e) =>
-                    atualizarParcelaRecebimento(index, {
-                      expected_amount: Number(e.target.value || 0),
-                    })
-                  }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Data prevista
-                </label>
-                <input
-                  type="date"
-                  value={parcela.expected_receipt_date || ""}
-                  onChange={(e) =>
-                    atualizarParcelaRecebimento(index, {
-                      expected_receipt_date: e.target.value || null,
-                    })
-                  }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Status
-                </label>
-                <select
-                  value={parcela.status}
-                  onChange={(e) =>
-                    atualizarParcelaRecebimento(index, {
-                      status: e.target.value as RecebimentoParcela["status"],
-                      actual_amount:
-                        e.target.value === "recebido"
-                          ? parcela.actual_amount || parcela.expected_amount
-                          : 0,
-                      actual_receipt_date:
-                        e.target.value === "recebido"
-                          ? parcela.actual_receipt_date ||
-                            new Date().toISOString().split("T")[0]
-                          : null,
-                    })
-                  }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                >
-                  <option value="pendente">Pendente</option>
-                  <option value="recebido">Recebido</option>
-                  <option value="cancelado">Cancelado</option>
-                </select>
-              </div>
-
-              <div className="flex items-end justify-end">
-                <button
-                  type="button"
-                  onClick={() => removerParcelaRecebimento(index)}
-                  className="rounded-lg bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-200"
-                >
-                  Remover
-                </button>
-              </div>
-
-              {parcela.status === "recebido" && (
-                <>
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-600">
-                      Valor recebido
-                    </label>
+                    <label className={rotulo}>Sinal recebido (opcional)</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      value={parcela.actual_amount}
-                      onChange={(e) =>
-                        atualizarParcelaRecebimento(index, {
-                          actual_amount: Number(e.target.value || 0),
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                      inputMode="decimal"
+                      value={form.sinal}
+                      onChange={(e) => setForm({ ...form, sinal: e.target.value })}
+                      placeholder="0,00"
+                      className={campo}
                     />
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-600">
-                      Data recebida
+                    <label className={rotulo}>Data em que recebeu o sinal</label>
+                    <input
+                      type="date"
+                      value={form.dataSinal}
+                      disabled={!temSinal}
+                      onChange={(e) => setForm({ ...form, dataSinal: e.target.value })}
+                      className={campo}
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className={rotulo}>
+                      {temSinal
+                        ? "Data prevista para receber o restante"
+                        : "Data prevista para receber o valor total"}
                     </label>
                     <input
                       type="date"
-                      value={parcela.actual_receipt_date || ""}
-                      onChange={(e) =>
-                        atualizarParcelaRecebimento(index, {
-                          actual_receipt_date: e.target.value || null,
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                      value={form.dataRestante}
+                      onChange={(e) => setForm({ ...form, dataRestante: e.target.value })}
+                      className={campo}
                     />
                   </div>
-
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-600">
-                      Forma de pagamento
-                    </label>
-                    <input
-                      value={parcela.payment_method}
-                      onChange={(e) =>
-                        atualizarParcelaRecebimento(index, {
-                          payment_method: e.target.value,
-                        })
-                      }
-                      placeholder="PIX, dinheiro, transferência..."
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        {Array.from(
-          new Map<string, string>(
-            recebimentosParcelas.map((p) => [p.event_revenue_id, p.description.split(" — ")[0]] as [string, string])
-          ).entries()
-        ).map(([id, descricao]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() =>
-              adicionarParcelaRecebimento(
-                id,
-                descricao,
-                eventoRecebimentos.event_date
-              )
-            }
-            className="rounded-lg bg-violet-100 px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-200"
-          >
-            + Parcela em {descricao}
-          </button>
-        ))}
-      </div>
-    </div>
-
-    <div className="flex justify-end border-t border-slate-200 px-5 py-4">
-      <button
-        onClick={salvarRecebimentosEvento}
-        disabled={salvandoRecebimentos}
-        className="rounded-lg bg-violet-600 px-6 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
-      >
-        {salvandoRecebimentos ? "Salvando..." : "Salvar recebimentos"}
-      </button>
-    </div>
-  </section>
-)}
-
-{eventoFechando && (
-  <section className="mb-6 rounded-xl border border-green-200 bg-white shadow-sm">
-    <div className="flex items-center justify-between border-b border-green-200 bg-green-50 px-5 py-4">
-      <div>
-        <h2 className="text-xl font-bold text-slate-800">
-          Fechar evento
-        </h2>
-        <p className="text-sm text-slate-500">
-          {eventoFechando.name} — {formatarData(eventoFechando.event_date)}
-        </p>
-      </div>
-
-      <button
-        onClick={() => {
-          setEventoFechando(null);
-          setReceitasFechamento([]);
-        }}
-        className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-300"
-      >
-        Cancelar
-      </button>
-    </div>
-
-    <div className="p-5">
-      <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className="rounded-lg bg-slate-100 p-4">
-          <p className="text-xs font-semibold uppercase text-slate-500">
-            Confirmado
-          </p>
-          <p className="mt-1 text-xl font-bold text-slate-800">
-            {formatarMoeda(totalConfirmadoFechamento)}
-          </p>
-        </div>
-
-        <div className="rounded-lg bg-green-50 p-4">
-          <p className="text-xs font-semibold uppercase text-green-700">
-            Recebido
-          </p>
-          <p className="mt-1 text-xl font-bold text-green-700">
-            {formatarMoeda(totalRecebidoFechamento)}
-          </p>
-        </div>
-
-        <div className="rounded-lg bg-yellow-50 p-4">
-          <p className="text-xs font-semibold uppercase text-yellow-700">
-            A receber
-          </p>
-          <p className="mt-1 text-xl font-bold text-yellow-700">
-            {formatarMoeda(totalAReceberFechamento)}
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {receitasFechamento.map((receita) => (
-          <div
-            key={receita.id}
-            className={`rounded-xl border p-4 ${
-              receita.confirmed
-                ? "border-slate-200 bg-white"
-                : "border-red-200 bg-red-50"
-            }`}
-          >
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex-1">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-lg font-bold text-slate-800">
-                      {receita.description}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      Previsto: {formatarMoeda(receita.expected_amount)}
-                    </p>
-                  </div>
-
-                  <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={receita.confirmed}
-                      onChange={(e) =>
-                        atualizarReceitaFechamento(receita.id, {
-                          confirmed: e.target.checked,
-                          status: e.target.checked ? "pendente" : "cancelado",
-                          actual_amount: e.target.checked ? receita.actual_amount : 0,
-                          actual_receipt_date: e.target.checked ? receita.actual_receipt_date : null,
-                        })
-                      }
-                      className="h-5 w-5 rounded border-slate-300"
-                    />
-                    Aconteceu
-                  </label>
                 </div>
 
-                {!receita.confirmed ? (
-                  <div className="mt-4 rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-700">
-                    Esta receita será excluída do resultado e não entrará no Caixa.
-                  </div>
-                ) : (
-                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-slate-600">
-                        Situação
-                      </label>
-                      <select
-                        value={
-                          receita.status === "recebido"
-                            ? "recebido"
-                            : receita.status === "parcial"
-                              ? "parcial"
-                              : "pendente"
-                        }
-                        onChange={(e) => {
-                          const novoStatus = e.target.value as "pendente" | "parcial" | "recebido";
-                          atualizarReceitaFechamento(receita.id, {
-                            status: novoStatus,
-                            actual_amount:
-                              novoStatus === "recebido"
-                                ? receita.actual_amount || receita.expected_amount
-                                : 0,
-                            actual_receipt_date:
-                              novoStatus === "recebido"
-                                ? receita.actual_receipt_date || new Date().toISOString().split("T")[0]
-                                : null,
-                          });
-                        }}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-green-500"
-                      >
-                        <option value="pendente">Confirmado — ainda não recebido</option>
-                        <option value="parcial">Recebido parcialmente</option>
-                        <option value="recebido">Recebido</option>
-                      </select>
+                {!valorBloqueado && Number.isFinite(valorNum) && valorNum > 0 && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="rounded-lg bg-white p-2">
+                      <div className="text-slate-600">Cobrado</div>
+                      <div className="text-sm font-bold">{moeda(valorNum)}</div>
                     </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-slate-600">
-                        Valor recebido
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={receita.actual_amount}
-                        disabled={receita.status !== "recebido"}
-                        onChange={(e) =>
-                          atualizarReceitaFechamento(receita.id, {
-                            actual_amount: Number(e.target.value || 0),
-                          })
-                        }
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-green-500 disabled:bg-slate-100 disabled:text-slate-400"
-                      />
+                    <div className="rounded-lg bg-white p-2">
+                      <div className="text-slate-600">Sinal</div>
+                      <div className="text-sm font-bold text-green-700">
+                        {moeda(temSinal ? sinalNum : 0)}
+                      </div>
                     </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-slate-600">
-                        Data do recebimento
-                      </label>
-                      <input
-                        type="date"
-                        value={receita.actual_receipt_date || ""}
-                        disabled={receita.status !== "recebido"}
-                        onChange={(e) =>
-                          atualizarReceitaFechamento(receita.id, {
-                            actual_receipt_date: e.target.value || null,
-                          })
-                        }
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-green-500 disabled:bg-slate-100 disabled:text-slate-400"
-                      />
+                    <div className="rounded-lg bg-white p-2">
+                      <div className="text-slate-600">{temSinal ? "Restante" : "A receber"}</div>
+                      <div className="text-sm font-bold text-blue-700">
+                        {moeda(Math.max(valorNum - (temSinal ? sinalNum : 0), 0))}
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
-            </div>
-          </div>
-        ))}
-      </div>
 
-      <div className="mt-6 rounded-xl bg-slate-800 p-5 text-white">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div>
-            <p className="text-xs uppercase text-slate-300">Confirmado</p>
-            <p className="mt-1 text-xl font-bold">
-              {formatarMoeda(totalConfirmadoFechamento)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase text-slate-300">Recebido</p>
-            <p className="mt-1 text-xl font-bold">
-              {formatarMoeda(totalRecebidoFechamento)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase text-slate-300">A receber</p>
-            <p className="mt-1 text-xl font-bold">
-              {formatarMoeda(totalAReceberFechamento)}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div className="flex justify-end border-t border-slate-200 px-5 py-4">
-      <button
-        onClick={salvarFechamentoEvento}
-        disabled={salvandoFechamento || receitasFechamento.length === 0}
-        className="rounded-lg bg-green-600 px-6 py-3 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
-      >
-        {salvandoFechamento
-          ? "Salvando..."
-          : "Confirmar fechamento do evento"}
-      </button>
-    </div>
-  </section>
-)}
-        {/* LISTA DE EVENTOS */}
-        <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-
-          <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 p-5">
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">
-                {mostrarArquivados ? "Eventos arquivados" : "Eventos cadastrados"}
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                {mostrarArquivados
-                  ? "Eventos concluídos. Eles permanecem salvos e podem ser consultados quando necessário."
-                  : "Eventos ativos, agendados e pendentes. Eventos concluídos são arquivados automaticamente."}
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="min-w-[280px]">
-                <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Buscar evento
-                </label>
-
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={buscaEvento}
-                    onChange={(e) => setBuscaEvento(e.target.value)}
-                    placeholder="Nome, local, data ou status..."
-                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 pr-10 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
-                  />
-
-                  {buscaEvento && (
-                    <button
-                      type="button"
-                      onClick={() => setBuscaEvento("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-sm font-bold text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      title="Limpar busca"
-                    >
-                      ×
-                    </button>
-                  )}
+              {/* CONTATO */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 md:col-span-2">
+                <p className="mb-2 text-sm font-bold text-slate-800">
+                  Responsável pelo evento <span className="font-normal text-slate-600">(opcional)</span>
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className={rotulo}>Nome</label>
+                    <input
+                      value={form.responsavel}
+                      onChange={(e) => setForm({ ...form, responsavel: e.target.value })}
+                      placeholder="Ex.: Maria Souza"
+                      className={campo}
+                    />
+                  </div>
+                  <div>
+                    <label className={rotulo}>Telefone</label>
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      value={form.telefone}
+                      onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+                      placeholder="Ex.: (32) 99999-0000"
+                      className={campo}
+                    />
+                  </div>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setMostrarArquivados((atual) => !atual)}
-                className={`rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-                  mostrarArquivados
-                    ? "bg-slate-800 text-white hover:bg-slate-700"
-                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                {mostrarArquivados
-                  ? "← Voltar aos eventos ativos"
-                  : `📦 Ver arquivados (${quantidadeArquivadosDoAno})`}
-              </button>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Ano
-                </label>
-
-                <select
-                  value={anoSelecionado}
-                  onChange={(e) =>
-                    setAnoSelecionado(Number(e.target.value))
-                  }
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
-                >
-                  {anosDisponiveis.map((ano) => (
-                    <option key={ano} value={ano}>
-                      {ano}
-                    </option>
-                  ))}
-                </select>
+              <div className="md:col-span-2">
+                <label className={rotulo}>Observações</label>
+                <textarea
+                  rows={3}
+                  value={form.observacoes}
+                  onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+                  placeholder="Informações extras do evento"
+                  className={campo}
+                />
               </div>
             </div>
-          </div>
 
-          {eventosDoAno.length === 0 ? (
-            <div className="p-10 text-center text-slate-500">
-              {buscaEvento.trim()
-                ? `Nenhum evento encontrado para "${buscaEvento}".`
-                : mostrarArquivados
-                  ? `Nenhum evento arquivado em ${anoSelecionado}.`
-                  : `Nenhum evento ativo cadastrado em ${anoSelecionado}.`}
+            <div className="mt-4 flex gap-2 sm:justify-end">
+              <button
+                onClick={() => {
+                  setFormAberto(false);
+                  setEditando(null);
+                  setErro("");
+                }}
+                className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 sm:flex-none"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvar}
+                disabled={salvando}
+                className="flex-1 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50 sm:flex-none"
+              >
+                {salvando ? "Salvando..." : editando ? "Salvar alterações" : "Cadastrar evento"}
+              </button>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="eventos-table w-full text-left text-sm">
+          </section>
+        )}
 
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-5 py-4">
-                      Evento
-                    </th>
+        {/* FILTROS */}
+        <section className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+          <select
+            value={ano}
+            onChange={(e) => setAno(Number(e.target.value))}
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm font-semibold"
+          >
+            {anos.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
 
-                    <th className="px-5 py-4">
-                      Data
-                    </th>
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar evento, local ou responsável"
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
 
-                    <th className="px-5 py-4">
-                      Horário
-                    </th>
-
-                    <th className="px-5 py-4">
-                      Valor
-                    </th>
-
-                    <th className="px-5 py-4">
-                      Recebimento
-                    </th>
-
-                    <th className="px-5 py-4">
-                      Status
-                    </th>
-
-                    <th className="px-5 py-4">
-                      Ações
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-slate-100">
-
-                  {eventosDoAno.map((evento) => (
-                    <tr
-                      key={evento.id}
-                      className="hover:bg-slate-50"
-                    >
-                      <td className="px-5 py-4">
-                        <div className="font-semibold text-slate-800">
-                          {nomePadraoEvento(evento.name)}
-                        </div>
-
-                        {(evento.location || evento.name) && (
-                          <div className="text-xs text-slate-500">
-                            {localPadraoEvento(
-                              evento.name,
-                              evento.location
-                            )}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-5 py-4 text-slate-600">
-                        {formatarData(
-                          evento.event_date
-                        )}
-                      </td>
-
-                      <td className="px-5 py-4 text-slate-600">
-                        {evento.event_time || "-"}
-                      </td>
-
-                      <td className="px-5 py-4 font-semibold text-slate-700">
-                        {formatarMoeda(
-  evento.status === "realizado" && evento.actual_amount !== null
-    ? evento.actual_amount
-    : evento.expected_amount
-)}
-                      </td>
-
-                      <td className="px-5 py-4 text-slate-600">
-                        {formatarData(
-                          evento.expected_receipt_date
-                        )}
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <select
-                          value={evento.status}
-                          onChange={(e) =>
-                            alterarStatus(
-                              evento.id,
-                              e.target.value
-                            )
-                          }
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold"
-                        >
-                          <option value="agendado">
-                            Agendado
-                          </option>
-
-                          <option value="realizado">
-                            Realizado
-                          </option>
-
-                          <option value="nao_realizado">
-                            Não realizado
-                          </option>
-
-                          <option value="cancelado">
-                            Cancelado
-                          </option>
-                        </select>
-                      </td>
-
-<td className="px-5 py-4">
-  <div className="flex flex-wrap gap-2">
-    <button
-      onClick={() => editarEvento(evento)}
-      className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700"
-    >
-      Editar
-    </button>
-
-    <button
-      onClick={() => abrirRecebimentosEvento(evento)}
-      className="rounded-lg bg-violet-100 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-200"
-    >
-      Recebimentos
-    </button>
-
-{evento.status !== "realizado" && evento.status !== "cancelado" && (
-  <button
-    onClick={() => abrirFechamentoEvento(evento)}
-    className="rounded-lg bg-green-100 px-3 py-2 text-xs font-semibold text-green-700 hover:bg-green-200"
-  >
-    Fechar evento
-  </button>
-)}
-    <button
-      onClick={() => abrirMusicosEvento(evento)}
-      className="rounded-lg bg-blue-100 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-200"
-    >
-      Músicos
-    </button>
-
-    <button
-      onClick={() =>
-        excluirEvento(
-          evento.id,
-          evento.name
-        )
-      }
-      className="rounded-lg bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-200"
-    >
-      Excluir
-    </button>
-
-  </div>
-</td>
-</tr>
-))}
-
-                </tbody>
-
-              </table>
-            </div>
-          )}
-
+          <button
+            onClick={() => setVerRealizados((v) => !v)}
+            className={`w-full rounded-lg px-3 py-2 text-xs font-bold sm:w-auto ${
+              verRealizados ? "bg-green-600 text-white" : "bg-slate-100 text-slate-700"
+            }`}
+          >
+            {verRealizados ? "← Ver próximos eventos" : `Ver realizados (${qtdRealizados})`}
+          </button>
         </section>
 
+        {templates.length > 0 && !verRealizados && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
+            <span>
+              Recorrentes criados automaticamente:{" "}
+              {templates.map((t) => `${t.name} (${DIAS[Number(t.weekday)] || "-"})`).join(" · ")}
+            </span>
+            <button
+              onClick={() => gerarProximasOcorrencias()}
+              disabled={gerando}
+              className="font-bold underline disabled:opacity-50"
+            >
+              {gerando ? "Atualizando..." : "Atualizar"}
+            </button>
+          </div>
+        )}
+
+        {/* LISTA */}
+        {eventosDoAno.length === 0 ? (
+          <div className="rounded-xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
+            Nenhum evento {verRealizados ? "realizado" : "agendado"} em {ano}.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:divide-y lg:divide-slate-100">
+            {/* Cabeçalho das colunas (computador) */}
+            <div className="hidden grid-cols-[56px_minmax(0,1fr)_110px_120px_120px_100px_150px] items-center gap-3 bg-slate-50 px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 lg:grid">
+              <div>Data</div>
+              <div>Evento</div>
+              <div className="text-right">Cobrado</div>
+              <div className="text-right">Sinal</div>
+              <div className="text-right">Restante</div>
+              <div className="text-center">Status</div>
+              <div className="text-right">Ações</div>
+            </div>
+
+            {eventosDoAno.map((evento) => {
+              const fin = resumoFinanceiro(evento);
+              const obs = lerObservacoes(evento.notes);
+              const st = STATUS[evento.status] || { rotulo: evento.status, classe: "bg-slate-100 text-slate-700" };
+              const [a, m, d] = evento.event_date.split("-").map(Number);
+              const dt = new Date(a, m - 1, d);
+              const mostrarObs = obs.texto && !obs.texto.startsWith("Ocorrência criada automaticamente");
+
+              const caixaData = (
+                <div className="flex h-14 w-12 shrink-0 flex-col items-center justify-center rounded-lg border border-slate-300 bg-slate-50">
+                  <span className="text-[10px] font-bold uppercase text-slate-500">
+                    {dt.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")}
+                  </span>
+                  <span className="text-lg font-extrabold leading-5">{String(d).padStart(2, "0")}</span>
+                  <span className="text-[10px] font-semibold uppercase text-slate-500">
+                    {dt.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}
+                  </span>
+                </div>
+              );
+
+              const contato = (obs.responsavel || obs.telefone) && (
+                <p className="mt-1 text-xs text-slate-700">
+                  👤 {obs.responsavel || "Responsável"}
+                  {obs.telefone && (
+                    <>
+                      {" · "}
+                      <a href={linkTelefone(obs.telefone)} className="font-semibold text-blue-700 underline">
+                        {obs.telefone}
+                      </a>
+                    </>
+                  )}
+                </p>
+              );
+
+              const botoes = (classe: string) => (
+                <>
+                  <button
+                    onClick={() => abrirEdicao(evento)}
+                    className={`${classe} rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-200`}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    onClick={() => excluir(evento)}
+                    className={`${classe} rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100`}
+                  >
+                    Excluir
+                  </button>
+                </>
+              );
+
+              return (
+                <div key={evento.id} className="border-b border-slate-100 last:border-0 lg:border-0">
+                  {/* ===== COMPUTADOR: uma linha por evento ===== */}
+                  <div className="hidden grid-cols-[56px_minmax(0,1fr)_110px_120px_120px_100px_150px] items-center gap-3 px-4 py-3 hover:bg-slate-50 lg:grid">
+                    {caixaData}
+
+                    <div className="min-w-0">
+                      <h3 className="truncate font-bold">{evento.name}</h3>
+                      <p className="truncate text-xs text-slate-600">
+                        {evento.event_time ? `${textoHorario(evento.event_time, obs.termino)} · ` : ""}
+                        {evento.location || "Local não informado"}
+                      </p>
+                      {contato}
+                      {mostrarObs && <p className="truncate text-xs text-slate-500">📝 {obs.texto}</p>}
+                    </div>
+
+                    <div className="text-right text-sm font-bold">{moeda(fin.valor)}</div>
+
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-green-700">{fin.sinal > 0 ? moeda(fin.sinal) : "—"}</div>
+                      {fin.sinal > 0 && fin.dataSinal && (
+                        <div className="text-[11px] text-slate-500">{dataBR(fin.dataSinal)}</div>
+                      )}
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-blue-700">{moeda(fin.restante)}</div>
+                      {evento.expected_receipt_date && (
+                        <div className="text-[11px] text-slate-500">{dataBR(evento.expected_receipt_date)}</div>
+                      )}
+                    </div>
+
+                    <div className="text-center">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.classe}`}>{st.rotulo}</span>
+                    </div>
+
+                    <div className="flex justify-end gap-2">{botoes("")}</div>
+                  </div>
+
+                  {/* ===== CELULAR: cartão ===== */}
+                  <div className="flex gap-3 p-3 lg:hidden">
+                    {caixaData}
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-bold leading-tight">{evento.name}</h3>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${st.classe}`}>
+                          {st.rotulo}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        {evento.event_time ? `${textoHorario(evento.event_time, obs.termino)} · ` : ""}
+                        {evento.location || "Local não informado"}
+                      </p>
+
+                      <div className="mt-2 grid grid-cols-3 gap-1.5 text-[11px]">
+                        <div className="rounded-md bg-slate-50 px-2 py-1">
+                          <div className="text-slate-500">Cobrado</div>
+                          <div className="font-bold text-slate-900">{moeda(fin.valor)}</div>
+                        </div>
+                        <div className="rounded-md bg-green-50 px-2 py-1">
+                          <div className="text-slate-500">Sinal</div>
+                          <div className="font-bold text-green-700">{fin.sinal > 0 ? moeda(fin.sinal) : "—"}</div>
+                          {fin.sinal > 0 && fin.dataSinal && (
+                            <div className="text-[10px] text-slate-500">{dataBR(fin.dataSinal)}</div>
+                          )}
+                        </div>
+                        <div className="rounded-md bg-blue-50 px-2 py-1">
+                          <div className="text-slate-500">{fin.sinal > 0 ? "Restante" : "Total"}</div>
+                          <div className="font-bold text-blue-700">{moeda(fin.restante)}</div>
+                          {evento.expected_receipt_date && (
+                            <div className="text-[10px] text-slate-500">{dataBR(evento.expected_receipt_date)}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {contato}
+                      {mostrarObs && <p className="mt-1 line-clamp-2 text-xs text-slate-500">📝 {obs.texto}</p>}
+
+                      <div className="mt-2 flex gap-2">{botoes("flex-1")}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </main>
   );

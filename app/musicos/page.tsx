@@ -24,6 +24,7 @@ export default function MusicosPage() {
   const [instrumentos, setInstrumentos] = useState<{ id: string; name: string }[]>([]);
 const [instrumentosSelecionados, setInstrumentosSelecionados] = useState<string[]>([]);
 const [musicoEditando, setMusicoEditando] = useState<Musico | null>(null);
+const [sucessoCadastro, setSucessoCadastro] = useState("");
 
 const [editNome, setEditNome] = useState("");
 const [editTipo, setEditTipo] = useState("Fixo");
@@ -31,6 +32,96 @@ const [editCache, setEditCache] = useState("");
 const [editPix, setEditPix] = useState("");
 const [editInstrumentosSelecionados, setEditInstrumentosSelecionados] =
   useState<string[]>([]);
+
+// Novo instrumento (direto do cadastro de músicos)
+const [novoInstrumento, setNovoInstrumento] = useState("");
+const [novoInstrumentoEdit, setNovoInstrumentoEdit] = useState("");
+const [salvandoInstrumento, setSalvandoInstrumento] = useState(false);
+
+async function adicionarNovoInstrumento(modo: "novo" | "edicao") {
+  const nomeInstrumento = (
+    modo === "novo" ? novoInstrumento : novoInstrumentoEdit
+  ).trim();
+
+  if (!nomeInstrumento) {
+    alert("Digite o nome do novo instrumento.");
+    return;
+  }
+
+  const selecionar = (id: string) => {
+    if (modo === "novo") {
+      setInstrumentosSelecionados((atual) =>
+        atual.includes(id) ? atual : [...atual, id]
+      );
+      setNovoInstrumento("");
+    } else {
+      setEditInstrumentosSelecionados((atual) =>
+        atual.includes(id) ? atual : [...atual, id]
+      );
+      setNovoInstrumentoEdit("");
+    }
+  };
+
+  // Se já existir, apenas marca
+  const existente = instrumentos.find(
+    (item) => item.name.trim().toLowerCase() === nomeInstrumento.toLowerCase()
+  );
+
+  if (existente) {
+    selecionar(existente.id);
+    return;
+  }
+
+  setSalvandoInstrumento(true);
+
+  const { data: criado, error } = await supabase
+    .from("instruments")
+    .insert({ name: nomeInstrumento })
+    .select("id, name")
+    .single();
+
+  setSalvandoInstrumento(false);
+
+  if (error) {
+    alert("Erro ao adicionar instrumento: " + error.message);
+    return;
+  }
+
+  setInstrumentos((atual) =>
+    [...atual, criado].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+  );
+  selecionar(criado.id);
+}
+
+function campoNovoInstrumento(modo: "novo" | "edicao") {
+  const valor = modo === "novo" ? novoInstrumento : novoInstrumentoEdit;
+  const setValor = modo === "novo" ? setNovoInstrumento : setNovoInstrumentoEdit;
+
+  return (
+    <div className="mt-2 flex gap-2">
+      <input
+        value={valor}
+        onChange={(e) => setValor(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            adicionarNovoInstrumento(modo);
+          }
+        }}
+        placeholder="Não achou? Digite um novo instrumento"
+        className="w-full rounded-xl border border-slate-400 bg-white p-2 text-sm text-slate-900 outline-none focus:border-[#751515]"
+      />
+      <button
+        type="button"
+        disabled={salvandoInstrumento}
+        onClick={() => adicionarNovoInstrumento(modo)}
+        className="whitespace-nowrap rounded-xl border border-[#751515] px-4 py-2 text-sm font-semibold text-[#751515] hover:bg-[#751515] hover:text-white disabled:opacity-50"
+      >
+        {salvandoInstrumento ? "Salvando..." : "+ Novo instrumento"}
+      </button>
+    </div>
+  );
+}
 
 async function carregarMusicos() {
   setLoading(true);
@@ -147,6 +238,14 @@ if (instrumentosSelecionados.length > 0) {
     setCache("");
     setPix("");
     setInstrumentosSelecionados([]);
+
+    // Sobe a tela para cadastrar o próximo
+    setSucessoCadastro(`${nome} cadastrado com sucesso! Pode cadastrar o próximo.`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.setTimeout(() => {
+      document.getElementById("novo-musico-nome")?.focus({ preventScroll: true });
+    }, 400);
+    window.setTimeout(() => setSucessoCadastro(""), 6000);
 
     carregarMusicos();
   }
@@ -270,15 +369,21 @@ async function salvarEdicaoMusico() {
           Músicos
         </h1>
 
-        <p className="mt-1 text-slate-500">
+        <p className="mt-1 text-slate-600">
           Cadastro e gerenciamento dos músicos da ViroMania
         </p>
       </header>
 
-      <div className="p-6 md:p-10">
+      <div className="p-3 sm:p-6 md:p-10">
 
         {/* FORMULÁRIO */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        {sucessoCadastro && (
+          <div className="mb-3 rounded-xl border border-green-300 bg-green-50 p-3 text-sm font-semibold text-green-800">
+            {sucessoCadastro}
+          </div>
+        )}
+
+        <section id="novo-musico" className="scroll-mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
 
           <h2 className="text-xl font-bold">
             Novo músico
@@ -290,38 +395,39 @@ async function salvarEdicaoMusico() {
           >
 
             <div>
-              <label className="text-sm font-medium">
+              <label className="text-sm font-semibold text-slate-800">
                 Nome
               </label>
 
               <input
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
+                id="novo-musico-nome"
                 placeholder="Nome do músico"
-                className="mt-2 w-full rounded-xl border p-3 outline-none focus:border-[#751515]"
+                className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900 outline-none focus:border-[#751515]"
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium">
+              <label className="text-sm font-semibold text-slate-800">
                 Tipo
               </label>
 
               <select
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value)}
-                className="mt-2 w-full rounded-xl border p-3"
+                className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900"
               >
                 <option>Fixo</option>
                 <option>Freelancer</option>
               </select>
             </div>
             <div>
-  <label className="text-sm font-medium">
+  <label className="text-sm font-semibold text-slate-800">
     Instrumentos
   </label>
 
-  <div className="mt-2 grid grid-cols-2 gap-2 rounded-xl border p-3 md:grid-cols-3">
+  <div className="mt-2 grid grid-cols-2 gap-2 rounded-xl border border-slate-400 p-3 text-base text-slate-900 md:grid-cols-3">
     {instrumentos.map((instrumento) => (
       <label
         key={instrumento.id}
@@ -346,16 +452,18 @@ async function salvarEdicaoMusico() {
           }}
         />
 
-        <span className="text-sm">
+        <span className="text-sm font-medium text-slate-800">
           {instrumento.name}
         </span>
       </label>
     ))}
   </div>
+
+  {campoNovoInstrumento("novo")}
 </div>
 
             <div>
-              <label className="text-sm font-medium">
+              <label className="text-sm font-semibold text-slate-800">
                 Cachê padrão
               </label>
 
@@ -365,12 +473,12 @@ async function salvarEdicaoMusico() {
                 value={cache}
                 onChange={(e) => setCache(e.target.value)}
                 placeholder="Ex.: 300"
-                className="mt-2 w-full rounded-xl border p-3"
+                className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900"
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium">
+              <label className="text-sm font-semibold text-slate-800">
                 Chave PIX
               </label>
 
@@ -378,7 +486,7 @@ async function salvarEdicaoMusico() {
                 value={pix}
                 onChange={(e) => setPix(e.target.value)}
                 placeholder="CPF, telefone, e-mail ou chave aleatória"
-                className="mt-2 w-full rounded-xl border p-3"
+                className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900"
               />
             </div>
 
@@ -399,7 +507,7 @@ async function salvarEdicaoMusico() {
 
         {/* EDIÇÃO DO MÚSICO */}
 {musicoEditando && (
-  <section className="mb-8 rounded-2xl border border-yellow-300 bg-yellow-50 p-6 shadow-sm">
+  <section id="editar-musico" className="mb-8 mt-8 scroll-mt-4 rounded-2xl border border-yellow-300 bg-yellow-50 p-4 shadow-sm sm:p-6">
     <div className="flex items-center justify-between">
       <h2 className="text-xl font-bold">
         Editar músico
@@ -422,27 +530,27 @@ async function salvarEdicaoMusico() {
       className="mt-6 grid gap-4 md:grid-cols-2"
     >
       <div>
-        <label className="text-sm font-medium">
+        <label className="text-sm font-semibold text-slate-800">
           Nome
         </label>
 
         <input
           value={editNome}
           onChange={(e) => setEditNome(e.target.value)}
-          className="mt-2 w-full rounded-xl border p-3"
+          className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900"
           placeholder="Nome do músico"
         />
       </div>
 
       <div>
-        <label className="text-sm font-medium">
+        <label className="text-sm font-semibold text-slate-800">
           Tipo
         </label>
 
         <select
           value={editTipo}
           onChange={(e) => setEditTipo(e.target.value)}
-          className="mt-2 w-full rounded-xl border p-3"
+          className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900"
         >
           <option>Fixo</option>
           <option>Freelancer</option>
@@ -450,7 +558,7 @@ async function salvarEdicaoMusico() {
       </div>
 
       <div>
-        <label className="text-sm font-medium">
+        <label className="text-sm font-semibold text-slate-800">
           Cachê padrão
         </label>
 
@@ -459,30 +567,30 @@ async function salvarEdicaoMusico() {
           step="0.01"
           value={editCache}
           onChange={(e) => setEditCache(e.target.value)}
-          className="mt-2 w-full rounded-xl border p-3"
+          className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900"
           placeholder="Ex.: 300"
         />
       </div>
 
       <div>
-        <label className="text-sm font-medium">
+        <label className="text-sm font-semibold text-slate-800">
           Chave PIX
         </label>
 
         <input
           value={editPix}
           onChange={(e) => setEditPix(e.target.value)}
-          className="mt-2 w-full rounded-xl border p-3"
+          className="mt-2 w-full rounded-xl border border-slate-400 p-3 text-base text-slate-900"
           placeholder="CPF, telefone, e-mail ou chave aleatória"
         />
       </div>
 
       <div className="md:col-span-2">
-        <label className="text-sm font-medium">
+        <label className="text-sm font-semibold text-slate-800">
           Instrumentos
         </label>
 
-        <div className="mt-2 grid grid-cols-2 gap-2 rounded-xl border p-4 md:grid-cols-3">
+        <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl border border-slate-400 p-2 md:grid-cols-3">
           {instrumentos.map((instrumento) => (
             <label
               key={instrumento.id}
@@ -507,12 +615,14 @@ async function salvarEdicaoMusico() {
                 }}
               />
 
-              <span className="text-sm">
+              <span className="text-sm font-medium text-slate-800">
                 {instrumento.name}
               </span>
             </label>
           ))}
         </div>
+
+        {campoNovoInstrumento("edicao")}
       </div>
 
       <div className="md:col-span-2">
@@ -528,7 +638,7 @@ async function salvarEdicaoMusico() {
 )}
 
         {/* LISTA */}
-        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
 
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold">
@@ -551,7 +661,46 @@ async function salvarEdicaoMusico() {
                 Nenhum músico cadastrado.
               </div>
             ) : (
-              <table className="w-full text-left">
+              <>
+              <div className="divide-y divide-slate-100 md:hidden">
+                {musicos.map((musico) => (
+                  <div key={`m-${musico.id}`} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold">{musico.name}</div>
+                        <div className="text-xs text-slate-700">
+                          {musico.type} · R$ {Number(musico.cache).toFixed(2).replace(".", ",")}
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-700">
+                          {musico.instrumentos?.length > 0 ? musico.instrumentos.join(", ") : "Sem instrumento"}
+                        </div>
+                        {musico.pix && (
+                          <div className="mt-0.5 break-all text-xs text-slate-600">PIX: {musico.pix}</div>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          onClick={() => {
+                            editarMusico(musico);
+                            setTimeout(() => document.getElementById("editar-musico")?.scrollIntoView({ behavior: "smooth" }), 50);
+                          }}
+                          className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => excluirMusico(musico.id, musico.name)}
+                          className="rounded-lg bg-red-100 px-3 py-2 text-xs font-semibold text-red-700"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <table className="hidden w-full text-left md:table">
 
                 <thead>
                   <tr className="border-b text-sm text-slate-500">
@@ -620,6 +769,7 @@ async function salvarEdicaoMusico() {
                 </tbody>
 
               </table>
+              </>
             )}
 
           </div>

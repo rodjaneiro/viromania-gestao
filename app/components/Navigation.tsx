@@ -12,7 +12,6 @@ const itens = [
   { href: "/relatorios", label: "Relatórios", icon: "▥" },
   { href: "/bonificacoes", label: "Bonificação", icon: "★" },
   { href: "/musicos", label: "Músicos", icon: "♟" },
-  { href: "/instrumentos", label: "Instrumentos", icon: "♪" },
 ];
 
 export default function Navigation() {

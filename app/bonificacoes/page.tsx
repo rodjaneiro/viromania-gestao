@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  NOTAS_ATRASO,
+  lerAtrasos,
+  montarNotasBonus,
+  observacaoSemTag,
+  pontosAtraso,
+  semanaDePagamento,
+  type NotaAtraso,
+} from "@/lib/bonus";
 
 type Musician = {
   id: string;
@@ -110,7 +119,7 @@ export default function BonificacoesPage() {
   ).padStart(2, "0")}`;
 
   const [mesReferencia, setMesReferencia] =
-    useState("2026-10");
+    useState(mesAtual < "2026-10" ? "2026-10" : mesAtual);
 
   const [valorBonificacao, setValorBonificacao] =
     useState("");
@@ -118,7 +127,10 @@ export default function BonificacoesPage() {
   const [observacao, setObservacao] = useState("");
 
   const [musicos, setMusicos] = useState<Musician[]>([]);
-  const [ranking, setRanking] = useState<Ranking[]>([]);
+  // Frequência calculada (eventos + ensaios) de cada músico fixo
+  const [frequencia, setFrequencia] = useState<Ranking[]>([]);
+  // Avaliação de atrasos nos shows (critério de desempate)
+  const [atrasos, setAtrasos] = useState<Record<string, NotaAtraso | "">>({});
 
   const [bonusExistente, setBonusExistente] =
     useState<ExistingBonus | null>(null);
@@ -142,6 +154,69 @@ export default function BonificacoesPage() {
 
   const fimMes = useMemo(
     () => ultimoDiaMes(mesReferencia),
+    [mesReferencia]
+  );
+
+  /*
+   * RANKING E VENCEDOR(ES)
+   *
+   * 1. Frequência total (eventos + ensaios)
+   * 2. Frequência em ensaios
+   * 3. Atrasos nos shows: excelente > bom > ruim
+   * 4. Empate completo = divide o valor
+   */
+  const ranking = useMemo<Ranking[]>(() => {
+    const lista = frequencia
+      .map((item) => ({ ...item, winner: false, individual_amount: 0 }))
+      .sort(
+        (a, b) =>
+          b.total_participations - a.total_participations ||
+          b.rehearsals_count - a.rehearsals_count ||
+          pontosAtraso(atrasos[b.musician_id]) - pontosAtraso(atrasos[a.musician_id]) ||
+          a.name.localeCompare(b.name, "pt-BR")
+      );
+
+    if (lista.length === 0) return lista;
+
+    const primeiro = lista[0];
+    const vencedores = lista.filter(
+      (item) =>
+        item.total_participations === primeiro.total_participations &&
+        item.rehearsals_count === primeiro.rehearsals_count &&
+        pontosAtraso(atrasos[item.musician_id]) ===
+          pontosAtraso(atrasos[primeiro.musician_id])
+    );
+
+    const valorIndividual =
+      Math.round((Number(valorBonificacao || 0) / vencedores.length) * 100) / 100;
+
+    for (const item of lista) {
+      item.winner = vencedores.some((v) => v.musician_id === item.musician_id);
+      item.individual_amount = item.winner ? valorIndividual : 0;
+    }
+
+    return lista;
+  }, [frequencia, atrasos, valorBonificacao]);
+
+  // Empate na frequência que ainda depende da avaliação de atrasos
+  const faltaAvaliarAtrasos = useMemo(() => {
+    if (frequencia.length < 2) return false;
+    const ordenada = [...frequencia].sort(
+      (a, b) =>
+        b.total_participations - a.total_participations ||
+        b.rehearsals_count - a.rehearsals_count
+    );
+    const p = ordenada[0];
+    const empatados = ordenada.filter(
+      (i) =>
+        i.total_participations === p.total_participations &&
+        i.rehearsals_count === p.rehearsals_count
+    );
+    return empatados.length > 1 && empatados.some((i) => !atrasos[i.musician_id]);
+  }, [frequencia, atrasos]);
+
+  const semanaPagamento = useMemo(
+    () => semanaDePagamento(mesReferencia),
     [mesReferencia]
   );
 
@@ -173,7 +248,8 @@ export default function BonificacoesPage() {
         String(data.total_amount || 0)
       );
 
-      setObservacao(data.notes || "");
+      setObservacao(observacaoSemTag(data.notes));
+      setAtrasos(lerAtrasos(data.notes));
 
       const { data: awards, error: awardsError } =
         await supabase
@@ -198,6 +274,7 @@ export default function BonificacoesPage() {
     } else {
       setValorBonificacao("");
       setObservacao("");
+      setAtrasos({});
       setPremiacoes([]);
     }
 
@@ -206,7 +283,7 @@ export default function BonificacoesPage() {
 
   async function calcularFrequencia(valorParaCalculo?: number) {
     if (mesReferencia < "2026-10") {
-      setRanking([]);
+      setFrequencia([]);
       setMensagem("");
       setErro("A bonificação começa a partir de outubro de 2026.");
       return;
@@ -319,103 +396,26 @@ export default function BonificacoesPage() {
        * =====================================================
        */
 
-      const rankingCalculado: Ranking[] = musicos
-        .filter(musicoEhFixo)
-        .map((musico) => {
-          const eventosCount =
-            contagemEventos[musico.id] || 0;
-
-          const ensaiosCount =
-            contagemEnsaios[musico.id] || 0;
-
-          return {
-            musician_id: musico.id,
-            name: musico.name,
-            events_count: eventosCount,
-            rehearsals_count: ensaiosCount,
-            total_participations:
-              eventosCount + ensaiosCount,
-            individual_amount: 0,
-            winner: false,
-          };
-        })
-        .filter(
-          (musico) =>
-            musico.total_participations > 0
-        )
-        .sort((a, b) => {
-          if (
-            b.total_participations !==
-            a.total_participations
-          ) {
-            return (
-              b.total_participations -
-              a.total_participations
-            );
-          }
-
-          if (b.events_count !== a.events_count) {
-            return (
-              b.events_count - a.events_count
-            );
-          }
-
-          return (
-            b.rehearsals_count -
-            a.rehearsals_count
-          );
-        });
-
-      /*
-       * =====================================================
-       * DEFINIR VENCEDOR(ES)
-       *
-       * Critérios:
-       * 1. Participações totais
-       * 2. Eventos
-       * 3. Ensaios
-       * 4. Empate completo = divide
-       * =====================================================
-       */
-
-      if (rankingCalculado.length > 0) {
-        const primeiro = rankingCalculado[0];
-
-        const vencedores = rankingCalculado.filter(
-          (item) =>
-            item.total_participations ===
-              primeiro.total_participations &&
-            item.events_count ===
-              primeiro.events_count &&
-            item.rehearsals_count ===
-              primeiro.rehearsals_count
-        );
-
-        const valor =
-          valorParaCalculo !== undefined
-            ? Number(valorParaCalculo || 0)
-            : Number(valorBonificacao || 0);
-
-        const valorIndividual =
-          vencedores.length > 0
-            ? valor / vencedores.length
-            : 0;
-
-        for (const item of rankingCalculado) {
-          const vencedor = vencedores.some(
-            (v) =>
-              v.musician_id === item.musician_id
-          );
-
-          item.winner = vencedor;
-
-          item.individual_amount = vencedor
-            ? valorIndividual
-            : 0;
-        }
-      }
-
-      setRanking(rankingCalculado);
+      // O ranking, os desempates e os vencedores são calculados
+      // automaticamente (ver "ranking" acima).
+      setFrequencia(
+        musicos
+          .filter(musicoEhFixo)
+          .map((musico) => {
+            const eventosCount = contagemEventos[musico.id] || 0;
+            const ensaiosCount = contagemEnsaios[musico.id] || 0;
+            return {
+              musician_id: musico.id,
+              name: musico.name,
+              events_count: eventosCount,
+              rehearsals_count: ensaiosCount,
+              total_participations: eventosCount + ensaiosCount,
+              individual_amount: 0,
+              winner: false,
+            };
+          })
+          .filter((musico) => musico.total_participations > 0)
+      );
 
       setMensagem("");
     } catch (error: any) {
@@ -432,28 +432,6 @@ export default function BonificacoesPage() {
 
   function alterarValor(valor: string) {
     setValorBonificacao(valor);
-
-    const numero = Number(valor || 0);
-
-    if (ranking.length === 0) return;
-
-    const vencedores = ranking.filter(
-      (item) => item.winner
-    );
-
-    const valorIndividual =
-      vencedores.length > 0
-        ? numero / vencedores.length
-        : 0;
-
-    setRanking((atual) =>
-      atual.map((item) => ({
-        ...item,
-        individual_amount: item.winner
-          ? valorIndividual
-          : 0,
-      }))
-    );
   }
 
   async function salvarBonificacao() {
@@ -501,7 +479,7 @@ export default function BonificacoesPage() {
           .from("monthly_bonuses")
           .update({
             total_amount: valor,
-            notes: observacao || null,
+            notes: montarNotasBonus(observacao, atrasos),
           })
           .eq("id", bonusId);
 
@@ -513,7 +491,7 @@ export default function BonificacoesPage() {
             reference_month: inicioMes,
             total_amount: valor,
             paid: false,
-            notes: observacao || null,
+            notes: montarNotasBonus(observacao, atrasos),
           })
           .select()
           .single();
@@ -731,19 +709,19 @@ export default function BonificacoesPage() {
   }, [mesReferencia, loading, musicos.length]);
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6 text-slate-800">
+    <main className="min-h-screen bg-slate-100 p-3 text-slate-800 sm:p-6">
       <div className="mx-auto max-w-7xl">
 
         {/* HEADER */}
 
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
 
           <div>
             <p className="text-sm font-semibold text-slate-500">
               VIROMANIA GESTÃO
             </p>
 
-            <h1 className="mt-1 text-3xl font-bold">
+            <h1 className="mt-1 text-2xl sm:text-3xl font-bold">
               Bonificação mensal
             </h1>
 
@@ -788,13 +766,13 @@ export default function BonificacoesPage() {
                 A bonificação começa a valer a partir de <strong>outubro de 2026</strong>. Setembro de 2026 não será considerado para pagamento.
               </div>
 
-              <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="mb-4 rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
 
-              <h2 className="text-xl font-bold">
+              <h2 className="text-base font-bold sm:text-lg">
                 Bonificação do mês
               </h2>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
 
                 <div>
                   <label className="mb-1 block text-sm font-semibold">
@@ -914,7 +892,7 @@ export default function BonificacoesPage() {
 
             {/* EXPLICAÇÃO */}
 
-            <section className="mb-6 rounded-xl border border-blue-100 bg-blue-50 p-5">
+            <section className="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-3 sm:p-4">
 
               <h2 className="font-bold text-blue-900">
                 Como o sistema calcula
@@ -939,12 +917,13 @@ export default function BonificacoesPage() {
 
                 <p>
                   <strong>4.</strong> Empate → mais
-                  eventos realizados.
+                  ensaios frequentados.
                 </p>
 
                 <p>
                   <strong>5.</strong> Persistindo o empate
-                  → mais ensaios.
+                  → média de atrasos nos shows
+                  (Excelente &gt; Bom &gt; Ruim), avaliada por você no fim do mês.
                 </p>
 
                 <p>
@@ -953,7 +932,8 @@ export default function BonificacoesPage() {
                 </p>
 
                 <p>
-                  <strong>7.</strong> O ranking é calculado quando você clicar em <strong>Recalcular frequência</strong>.
+                  <strong>7.</strong> A bonificação é paga junto com o pagamento da
+                  última semana do mês e aparece no pagamento de quem ganhou.
                 </p>
 
               </div>
@@ -962,14 +942,14 @@ export default function BonificacoesPage() {
 
             {/* RANKING */}
 
-            <section className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <section className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
 
-              <div className="border-b border-slate-200 p-5">
+              <div className="border-b border-slate-200 p-3 sm:p-4">
 
                 <div className="flex flex-wrap items-center justify-between gap-4">
 
                   <div>
-                    <h2 className="text-xl font-bold">
+                    <h2 className="text-base font-bold sm:text-lg">
                       Frequência —{" "}
                       {nomeMes(mesReferencia)}
                     </h2>
@@ -992,6 +972,13 @@ export default function BonificacoesPage() {
                 </div>
 
               </div>
+
+              {faltaAvaliarAtrasos && (
+                <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-800">
+                  Há empate na frequência. Avalie os atrasos nos shows dos empatados
+                  para definir quem recebe (se continuarem empatados, o valor é dividido).
+                </div>
+              )}
 
               {ranking.length === 0 ? (
                 <div className="p-10 text-center text-slate-500">
@@ -1022,7 +1009,73 @@ export default function BonificacoesPage() {
               ) : (
                 <div className="overflow-x-auto">
 
-                  <table className="w-full text-sm">
+                  <>
+                  <div className="divide-y divide-slate-100 md:hidden">
+                    {ranking.map((item) => (
+                      <div
+                        key={`m-${item.musician_id}`}
+                        className={`p-4 ${item.winner ? "bg-green-50" : ""}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-bold">{item.name}</div>
+                            <div className="mt-0.5 text-xs text-slate-500">
+                              {item.events_count} eventos + {item.rehearsals_count} ensaios ={" "}
+                              <strong>{item.total_participations}</strong>
+                            </div>
+                          </div>
+                          {item.winner ? (
+                            <div className="shrink-0 text-right">
+                              <span className="rounded-full bg-green-600 px-2.5 py-1 text-xs font-bold text-white">
+                                🏆 Recebe
+                              </span>
+                              {item.individual_amount > 0 && (
+                                <div className="mt-1 text-sm font-bold">
+                                  {moeda(item.individual_amount)}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="shrink-0 text-xs text-slate-400">Sem bonificação</span>
+                          )}
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <span className="text-xs font-semibold uppercase text-slate-500">
+                            Atrasos nos shows
+                          </span>
+                          <select
+                            value={atrasos[item.musician_id] || ""}
+                            disabled={bonusExistente?.paid}
+                            onChange={(e) =>
+                              setAtrasos((atual) => ({
+                                ...atual,
+                                [item.musician_id]: e.target.value as NotaAtraso | "",
+                              }))
+                            }
+                            className={`rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-60 ${
+                              atrasos[item.musician_id] === "excelente"
+                                ? "border-green-300 bg-green-50 text-green-700"
+                                : atrasos[item.musician_id] === "bom"
+                                  ? "border-blue-300 bg-blue-50 text-blue-700"
+                                  : atrasos[item.musician_id] === "ruim"
+                                    ? "border-red-300 bg-red-50 text-red-700"
+                                    : "border-slate-300 bg-white text-slate-500"
+                            }`}
+                          >
+                            <option value="">Não avaliado</option>
+                            {NOTAS_ATRASO.map((n) => (
+                              <option key={n.valor} value={n.valor}>
+                                {n.rotulo}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <table className="hidden w-full text-sm md:table">
 
                     <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
 
@@ -1042,6 +1095,10 @@ export default function BonificacoesPage() {
 
                         <th className="px-5 py-4">
                           Total
+                        </th>
+
+                        <th className="px-5 py-4">
+                          Atrasos nos shows
                         </th>
 
                         <th className="px-5 py-4">
@@ -1101,6 +1158,35 @@ export default function BonificacoesPage() {
 
                             </td>
 
+                            <td className="px-5 py-4">
+                              <select
+                                value={atrasos[item.musician_id] || ""}
+                                disabled={bonusExistente?.paid}
+                                onChange={(e) =>
+                                  setAtrasos((atual) => ({
+                                    ...atual,
+                                    [item.musician_id]: e.target.value as NotaAtraso | "",
+                                  }))
+                                }
+                                className={`rounded-lg border px-2 py-1.5 text-xs font-bold disabled:opacity-60 ${
+                                  atrasos[item.musician_id] === "excelente"
+                                    ? "border-green-300 bg-green-50 text-green-700"
+                                    : atrasos[item.musician_id] === "bom"
+                                      ? "border-blue-300 bg-blue-50 text-blue-700"
+                                      : atrasos[item.musician_id] === "ruim"
+                                        ? "border-red-300 bg-red-50 text-red-700"
+                                        : "border-slate-300 bg-white text-slate-500"
+                                }`}
+                              >
+                                <option value="">Não avaliado</option>
+                                {NOTAS_ATRASO.map((n) => (
+                                  <option key={n.valor} value={n.valor}>
+                                    {n.rotulo}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+
                             <td className="px-5 py-4 font-bold">
 
                               {item.individual_amount >
@@ -1133,6 +1219,7 @@ export default function BonificacoesPage() {
                     </tbody>
 
                   </table>
+                  </>
 
                 </div>
               )}
@@ -1142,15 +1229,15 @@ export default function BonificacoesPage() {
             {/* RESUMO */}
 
             {ranking.length > 0 && (
-              <section className="mb-6 grid gap-4 md:grid-cols-3">
+              <section className="mb-4 grid grid-cols-3 gap-2 sm:gap-3">
 
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 shadow-sm">
 
-                  <p className="text-sm font-semibold text-slate-500">
+                  <p className="text-[11px] font-semibold leading-tight sm:text-xs text-slate-500">
                     Bonificação total
                   </p>
 
-                  <p className="mt-2 text-2xl font-bold">
+                  <p className="mt-1 text-sm sm:text-lg font-bold">
                     {moeda(
                       Number(
                         valorBonificacao || 0
@@ -1160,26 +1247,26 @@ export default function BonificacoesPage() {
 
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 shadow-sm">
 
-                  <p className="text-sm font-semibold text-slate-500">
-                    Participações do líder
+                  <p className="text-[11px] font-semibold leading-tight sm:text-xs text-slate-500">
+                    Frequência do líder
                   </p>
 
-                  <p className="mt-2 text-2xl font-bold">
+                  <p className="mt-1 text-sm sm:text-lg font-bold">
                     {ranking[0]
                       ?.total_participations || 0}
                   </p>
 
                 </div>
 
-                <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+                <div className="rounded-xl border border-green-200 bg-green-50 p-2.5 sm:p-3">
 
-                  <p className="text-sm font-semibold text-green-700">
+                  <p className="text-[11px] font-semibold leading-tight sm:text-xs text-green-700">
                     Valor a pagar
                   </p>
 
-                  <p className="mt-2 text-2xl font-bold text-green-800">
+                  <p className="mt-1 text-sm sm:text-lg font-bold text-green-800">
                     {moeda(
                       ranking.reduce(
                         (total, item) =>
@@ -1198,51 +1285,28 @@ export default function BonificacoesPage() {
               </section>
             )}
 
-            {/* AÇÕES FINAIS */}
+            {/* PAGAMENTO */}
 
-            {bonusExistente &&
-              !bonusExistente.paid &&
-              premiacoes.length > 0 && (
-                <section className="mb-10 rounded-xl bg-slate-900 p-6 text-white shadow-sm">
-
-                  <div className="flex flex-wrap items-center justify-between gap-5">
-
-                    <div>
-
-                      <h2 className="text-xl font-bold">
-                        Pagamento da bonificação
-                      </h2>
-
-                      <p className="mt-2 text-sm text-slate-400">
-                        Depois de pagar, o sistema
-                        registrará automaticamente a
-                        saída no Caixa do Grupo.
-                      </p>
-
-                    </div>
-
-                    <button
-                      onClick={pagarBonificacao}
-                      disabled={pagando}
-                      className="rounded-lg bg-green-600 px-6 py-3 font-bold text-white disabled:opacity-50"
-                    >
-                      {pagando
-                        ? "Processando..."
-                        : `Pagar ${moeda(
-                            bonusExistente.total_amount
-                          )}`}
-                    </button>
-
-                  </div>
-
-                </section>
-              )}
+            {bonusExistente && !bonusExistente.paid && premiacoes.length > 0 && (
+              <section className="mb-10 rounded-xl bg-slate-900 p-6 text-white shadow-sm">
+                <h2 className="text-base font-bold sm:text-lg">Pagamento da bonificação</h2>
+                <p className="mt-2 text-sm text-slate-300">
+                  Será paga junto com o pagamento da semana{" "}
+                  <strong>
+                    {dataBR(semanaPagamento.inicio)} a {dataBR(semanaPagamento.fim)}
+                  </strong>{" "}
+                  (última semana de {nomeMes(mesReferencia)}). O valor aparece na aba
+                  Pagamentos de quem ganhou, somado aos cachês, e sai do caixa quando o
+                  fechamento dessa semana for salvo.
+                </p>
+              </section>
+            )}
 
             {/* HISTÓRICO */}
 
-            <section className="mb-10 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className="mb-10 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
 
-              <h2 className="text-xl font-bold">
+              <h2 className="text-base font-bold sm:text-lg">
                 Histórico deste mês
               </h2>
 

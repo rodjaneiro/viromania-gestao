@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  MANUAL_PREFIX,
+  calcularCaixa,
+  registrarAjusteSaldo,
+  ehAjusteSaldo,
+} from "@/lib/caixa";
 
 type AnyRow = Record<string, any>;
 
@@ -19,14 +25,22 @@ function iso(d: Date) {
   )}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function isSignal(description: string) {
-  const d = String(description || "").trim().toLowerCase();
-  return d === "sinal" || d.startsWith("sinal ");
+function parseValor(v: string) {
+  const s = String(v || "").trim();
+  if (!s) return NaN;
+  // Aceita "12.345,67", "12345,67" e "12345.67"
+  const normalizado = s.includes(",")
+    ? s.replace(/\./g, "").replace(",", ".")
+    : s;
+  return Number(normalizado);
 }
 
-const MANUAL_PREFIX = "MANUAL_CAIXA";
+function dataBR(d: string) {
+  if (!d || d.startsWith("1900")) return "-";
+  return new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR");
+}
 
-export default function CaixaTestePage() {
+export default function CaixaPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -34,6 +48,10 @@ export default function CaixaTestePage() {
 
   const [data, setData] = useState<AnyRow | null>(null);
   const [showForm, setShowForm] = useState(false);
+
+  // Ajuste de saldo (fica registrado no histórico)
+  const [showAjuste, setShowAjuste] = useState(false);
+  const [ajuste, setAjuste] = useState({ valor: "", motivo: "" });
 
   const [form, setForm] = useState({
     direction: "entrada",
@@ -47,430 +65,48 @@ export default function CaixaTestePage() {
     try {
       setLoading(true);
       setError("");
-
-      // =========================================================
-      // 1) SALDO INICIAL
-      // =========================================================
-      const setupRes = await supabase
-        .from("cash_setup")
-        .select("initial_balance,start_date")
-        .limit(1)
-        .maybeSingle();
-
-      if (setupRes.error) throw setupRes.error;
-
-      const initialBalance = Number(
-        setupRes.data?.initial_balance || 0
-      );
-
-      const startDate = String(
-        setupRes.data?.start_date || "1900-01-01"
-      );
-
-      // =========================================================
-      // 2) ÚLTIMO FECHAMENTO
-      // =========================================================
-      const closingRes = await supabase
-        .from("weekly_closings")
-        .select(
-          "id,week_start,week_end,rodrigo_amount,marlon_amount,rodrigo_paid,marlon_paid,rodrigo_payment_date,marlon_payment_date"
-        )
-        .order("week_end", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (closingRes.error) throw closingRes.error;
-
-      const closing = closingRes.data as AnyRow | null;
-
-      if (!closing) {
-        throw new Error(
-          "Não encontrei nenhum fechamento semanal."
-        );
-      }
-
-      const weekStart = String(closing.week_start);
-      const weekEnd = String(closing.week_end);
-
-      // =========================================================
-      // 3) EVENTOS DA SEMANA
-      // =========================================================
-      const eventsRes = await supabase
-        .from("events")
-        .select("id,name,event_date,status")
-        .gte("event_date", weekStart)
-        .lte("event_date", weekEnd)
-        .eq("status", "realizado")
-        .order("event_date");
-
-      if (eventsRes.error) throw eventsRes.error;
-
-      const events = (eventsRes.data || []) as AnyRow[];
-
-      const eventIds = events.map((e) => String(e.id));
-
-      // =========================================================
-      // 4) RECEITAS DOS EVENTOS
-      // =========================================================
-      let revenues: AnyRow[] = [];
-
-      if (eventIds.length) {
-        const revenuesRes = await supabase
-          .from("event_revenues")
-          .select(
-            "id,event_id,expected_amount,actual_amount,confirmed,status"
-          )
-          .in("event_id", eventIds);
-
-        if (revenuesRes.error) {
-          throw revenuesRes.error;
-        }
-
-        revenues = (revenuesRes.data || []) as AnyRow[];
-      }
-
-      // =========================================================
-      // 5) TODOS OS RECEBIMENTOS
-      // =========================================================
-      const receiptsRes = await supabase
-        .from("event_revenue_receipts")
-        .select(
-          "id,event_revenue_id,description,actual_amount,actual_receipt_date,status"
-        )
-        .eq("status", "recebido");
-
-      if (receiptsRes.error) {
-        throw receiptsRes.error;
-      }
-
-      const receipts = (receiptsRes.data || []) as AnyRow[];
-
-      // =========================================================
-      // 6) ENTRADAS DOS EVENTOS DA SEMANA
-      // =========================================================
-      let eventWeekEntries = 0;
-
-      const eventBreakdown: AnyRow[] = [];
-
-      for (const event of events) {
-        const eventRevenueIds = revenues
-          .filter(
-            (r) =>
-              String(r.event_id) === String(event.id)
-          )
-          .map((r) => String(r.id));
-
-        const eventReceipts = receipts.filter((r) =>
-          eventRevenueIds.includes(
-            String(r.event_revenue_id)
-          )
-        );
-
-        const received = eventReceipts.reduce(
-          (sum, r) =>
-            sum + Number(r.actual_amount || 0),
-          0
-        );
-
-        const oldSignals = eventReceipts
-          .filter((r) =>
-            isSignal(
-              String(r.description || "")
-            )
-          )
-          .reduce(
-            (sum, r) =>
-              sum + Number(r.actual_amount || 0),
-            0
-          );
-
-        const entersNow = Math.max(
-          received - oldSignals,
-          0
-        );
-
-        eventWeekEntries += entersNow;
-
-        eventBreakdown.push({
-          event: event.name,
-          date: event.event_date,
-          received,
-          oldSignals,
-          entersNow,
-        });
-      }
-
-      // =========================================================
-      // 7) SINAIS DE EVENTOS FUTUROS
-      // =========================================================
-      const allRevenuesRes = await supabase
-        .from("event_revenues")
-        .select("id,event_id");
-
-      if (allRevenuesRes.error) {
-        throw allRevenuesRes.error;
-      }
-
-      const allRevenues =
-        (allRevenuesRes.data || []) as AnyRow[];
-
-      const allEventIds = [
-        ...new Set(
-          allRevenues.map((r) =>
-            String(r.event_id)
-          )
-        ),
-      ];
-
-      let futureEvents: AnyRow[] = [];
-
-      if (allEventIds.length) {
-        const futureEventsRes = await supabase
-          .from("events")
-          .select("id,name,event_date,status")
-          .in("id", allEventIds)
-          .gt("event_date", weekEnd);
-
-        if (futureEventsRes.error) {
-          throw futureEventsRes.error;
-        }
-
-        futureEvents =
-          (futureEventsRes.data || []) as AnyRow[];
-      }
-
-      const futureEventIds = new Set(
-        futureEvents.map((e) => String(e.id))
-      );
-
-      const futureRevenueIds = new Set(
-        allRevenues
-          .filter((r) =>
-            futureEventIds.has(
-              String(r.event_id)
-            )
-          )
-          .map((r) => String(r.id))
-      );
-
-      const futureSignals = receipts.filter(
-        (r) =>
-          futureRevenueIds.has(
-            String(r.event_revenue_id)
-          ) &&
-          isSignal(
-            String(r.description || "")
-          ) &&
-          !!r.actual_receipt_date &&
-          String(r.actual_receipt_date) >=
-            startDate &&
-          String(r.actual_receipt_date) <=
-            weekEnd
-      );
-
-      const futureSignalsTotal =
-        futureSignals.reduce(
-          (sum, r) =>
-            sum + Number(r.actual_amount || 0),
-          0
-        );
-
-      // =========================================================
-      // 8) PAGAMENTOS DOS MÚSICOS
-      // =========================================================
-      const musicianPaymentsRes = await supabase
-        .from("event_musicians")
-        .select(
-          "event_cache,payment_status,payment_date,event_id"
-        )
-        .eq("payment_status", "pago")
-        .not("payment_date", "is", null);
-
-      if (musicianPaymentsRes.error) {
-        throw musicianPaymentsRes.error;
-      }
-
-      const musicianPayments =
-        (musicianPaymentsRes.data || []) as AnyRow[];
-
-      const musiciansPaid = musicianPayments
-        .filter(
-          (p) =>
-            String(p.payment_date) >=
-            startDate
-        )
-        .reduce(
-          (sum, p) =>
-            sum + Number(p.event_cache || 0),
-          0
-        );
-
-      // =========================================================
-      // 9) SÓCIOS PAGOS
-      // =========================================================
-      const rodrigoPaid =
-        Boolean(closing.rodrigo_paid) &&
-        String(
-          closing.rodrigo_payment_date || ""
-        ) >= startDate
-          ? Number(
-              closing.rodrigo_amount || 0
-            )
-          : 0;
-
-      const marlonPaid =
-        Boolean(closing.marlon_paid) &&
-        String(
-          closing.marlon_payment_date || ""
-        ) >= startDate
-          ? Number(
-              closing.marlon_amount || 0
-            )
-          : 0;
-
-      const partnersPaid =
-        rodrigoPaid + marlonPaid;
-
-      // =========================================================
-      // 10) DESPESAS PAGAS
-      // =========================================================
-      const expensesRes = await supabase
-        .from("event_expenses")
-        .select("amount,payment_date")
-        .not("payment_date", "is", null);
-
-      if (expensesRes.error) {
-        throw expensesRes.error;
-      }
-
-      const expensesPaid = (
-        expensesRes.data || []
-      )
-        .filter(
-          (d: AnyRow) =>
-            String(d.payment_date) >=
-            startDate
-        )
-        .reduce(
-          (sum, d) =>
-            sum + Number(d.amount || 0),
-          0
-        );
-
-      // =========================================================
-      // 11) MOVIMENTAÇÕES MANUAIS
-      //
-      // Usamos transaction_type = "receita" porque esse
-      // é um tipo aceito pela tabela atual.
-      //
-      // Para não misturar com receitas automáticas,
-      // usamos o prefixo MANUAL_CAIXA nas observações.
-      // =========================================================
-      const manualRes = await supabase
-        .from("cash_transactions")
-        .select(
-          "id,transaction_date,description,transaction_type,amount,direction,notes,created_at"
-        )
-        .eq("transaction_type", "receita")
-        .is("event_id", null)
-        .is("musician_id", null)
-        .gte("transaction_date", startDate)
-        .order("transaction_date", {
-          ascending: false,
-        })
-        .order("created_at", {
-          ascending: false,
-        });
-
-      if (manualRes.error) {
-        throw manualRes.error;
-      }
-
-      const allPossibleManual =
-        (manualRes.data || []) as AnyRow[];
-
-      const manualTransactions =
-        allPossibleManual.filter((t) =>
-          String(t.notes || "").startsWith(
-            MANUAL_PREFIX
-          )
-        );
-
-      const manualEntries =
-        manualTransactions
-          .filter(
-            (t) =>
-              String(t.direction) ===
-              "entrada"
-          )
-          .reduce(
-            (sum, t) =>
-              sum + Number(t.amount || 0),
-            0
-          );
-
-      const manualExits =
-        manualTransactions
-          .filter(
-            (t) =>
-              String(t.direction) ===
-              "saida"
-          )
-          .reduce(
-            (sum, t) =>
-              sum + Number(t.amount || 0),
-            0
-          );
-
-      // =========================================================
-      // 12) TOTAL DO CAIXA
-      // =========================================================
-      const weeklyEntries =
-        eventWeekEntries +
-        futureSignalsTotal +
-        manualEntries;
-
-      const weeklyExits =
-        musiciansPaid +
-        partnersPaid +
-        expensesPaid +
-        manualExits;
-
-      const currentBalance =
-        initialBalance +
-        weeklyEntries -
-        weeklyExits;
-
-      setData({
-        initialBalance,
-        startDate,
-        weekStart,
-        weekEnd,
-        eventWeekEntries,
-        futureSignalsTotal,
-        manualEntries,
-        manualExits,
-        musiciansPaid,
-        rodrigoPaid,
-        marlonPaid,
-        partnersPaid,
-        expensesPaid,
-        weeklyEntries,
-        weeklyExits,
-        currentBalance,
-        eventBreakdown,
-        futureSignals,
-        manualTransactions,
-      });
+      setData(await calcularCaixa());
     } catch (e: any) {
       console.error(e);
-
-      setError(
-        e?.message ||
-          "Erro ao calcular o caixa."
-      );
+      setError(e?.message || "Erro ao calcular o caixa.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function salvarAjuste() {
+    try {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+
+      const valor = parseValor(ajuste.valor);
+
+      if (!Number.isFinite(valor)) {
+        throw new Error("Informe o saldo real que está no caixa.");
+      }
+
+      if (!ajuste.motivo.trim()) {
+        throw new Error("Informe o motivo do ajuste (ex.: rendimento da conta, correção).");
+      }
+
+      const { saldoAnterior, diferenca } = await registrarAjusteSaldo({
+        saldoNovo: valor,
+        motivo: ajuste.motivo,
+      });
+
+      setSuccess(
+        `Ajuste registrado: saldo de ${brl(saldoAnterior)} para ${brl(valor)} (${diferenca > 0 ? "+" : "−"}${brl(Math.abs(diferenca))}).`
+      );
+      setShowAjuste(false);
+      setAjuste({ valor: "", motivo: "" });
+
+      await runTest();
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || "Não foi possível ajustar o saldo do caixa.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -483,11 +119,8 @@ export default function CaixaTestePage() {
       setError("");
       setSuccess("");
 
-      const amount = Number(
-        String(form.amount)
-          .replace(/\./g, "")
-          .replace(",", ".")
-      );
+      // Aceita "1.500,00", "1500,00" e "1500.00"
+      const amount = Math.round(parseValor(form.amount) * 100) / 100;
 
       if (!form.transaction_date) {
         throw new Error(
@@ -495,7 +128,14 @@ export default function CaixaTestePage() {
         );
       }
 
-      if (!amount || amount <= 0) {
+      // Lançamentos antes do início do caixa não entrariam no saldo
+      if (data?.startDate && form.transaction_date < String(data.startDate)) {
+        throw new Error(
+          `A data não pode ser anterior a ${dataBR(String(data.startDate))}, quando o saldo atual do caixa começou a ser contado.`
+        );
+      }
+
+      if (!Number.isFinite(amount) || amount <= 0) {
         throw new Error(
           "Informe um valor válido."
         );
@@ -589,7 +229,7 @@ export default function CaixaTestePage() {
               Financeiro
             </div>
 
-            <h1 className="text-3xl font-bold">
+            <h1 className="text-2xl sm:text-3xl font-bold">
               Caixa ViroMania
             </h1>
 
@@ -598,7 +238,19 @@ export default function CaixaTestePage() {
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+
+            <button
+              onClick={() => {
+                setShowAjuste(true);
+                setShowForm(false);
+                setError("");
+                setSuccess("");
+              }}
+              className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold sm:px-4 sm:py-2.5 sm:text-sm text-white shadow hover:bg-amber-600"
+            >
+              Ajustar saldo do caixa
+            </button>
 
             <button
               onClick={() => {
@@ -606,14 +258,14 @@ export default function CaixaTestePage() {
                 setError("");
                 setSuccess("");
               }}
-              className="rounded-lg bg-green-600 px-4 py-3 text-sm font-bold text-white shadow hover:bg-green-700"
+              className="rounded-lg bg-green-600 px-3 py-2 text-xs font-bold sm:px-4 sm:py-2.5 sm:text-sm text-white shadow hover:bg-green-700"
             >
               + Nova movimentação
             </button>
 
             <button
               onClick={runTest}
-              className="rounded-lg bg-slate-900 px-4 py-3 text-sm font-bold text-white"
+              className="col-span-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold sm:px-4 sm:py-2.5 sm:text-sm text-white sm:col-span-1"
             >
               Recalcular
             </button>
@@ -635,6 +287,99 @@ export default function CaixaTestePage() {
           </div>
         )}
 
+        {/* AJUSTE DO SALDO */}
+        {showAjuste && data && (
+          <section className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-5 shadow">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold sm:text-lg">Ajustar saldo do caixa</h2>
+                <p className="text-sm text-slate-600">
+                  Informe quanto existe de verdade no caixa hoje. A diferença vira um
+                  lançamento com data, usuário e motivo, que fica no histórico de ajustes
+                  e não pode ser apagado pela tela.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowAjuste(false)}
+                className="rounded-lg px-3 py-2 text-sm font-bold text-slate-500 hover:bg-amber-100"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold">
+                  Saldo real em caixa hoje
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ex.: 5.831,56"
+                  value={ajuste.valor}
+                  onChange={(e) => setAjuste({ ...ajuste, valor: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-lg font-bold outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold">
+                  Motivo do ajuste
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex.: Rendimento da conta do grupo"
+                  value={ajuste.motivo}
+                  onChange={(e) => setAjuste({ ...ajuste, motivo: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            {Number.isFinite(parseValor(ajuste.valor)) && (
+              <div className="mt-4 rounded-lg border bg-white p-4 text-sm">
+                <div>
+                  Saldo no sistema: <b>{brl(data.currentBalance)}</b>
+                </div>
+                <div>
+                  Saldo informado: <b>{brl(parseValor(ajuste.valor))}</b>
+                </div>
+                <div className="mt-1 text-base">
+                  Ajuste:{" "}
+                  <b
+                    className={
+                      parseValor(ajuste.valor) - data.currentBalance >= 0
+                        ? "text-green-700"
+                        : "text-red-700"
+                    }
+                  >
+                    {parseValor(ajuste.valor) - data.currentBalance >= 0 ? "+" : "−"}
+                    {brl(Math.abs(parseValor(ajuste.valor) - data.currentBalance))}
+                  </b>{" "}
+                  em {dataBR(iso(new Date()))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setShowAjuste(false)}
+                className="rounded-lg border bg-white px-5 py-3 text-sm font-bold text-slate-600"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvarAjuste}
+                disabled={saving}
+                className="rounded-lg bg-amber-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {saving ? "Registrando..." : "Registrar ajuste"}
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* FORMULÁRIO */}
         {showForm && (
           <section className="mb-5 rounded-xl border bg-white p-5 shadow">
@@ -642,7 +387,7 @@ export default function CaixaTestePage() {
             <div className="mb-5 flex items-center justify-between">
 
               <div>
-                <h2 className="text-xl font-bold">
+                <h2 className="text-base font-bold sm:text-lg">
                   Nova movimentação
                 </h2>
 
@@ -723,6 +468,7 @@ export default function CaixaTestePage() {
 
                 <input
                   type="date"
+                  min={data?.startDate && !String(data.startDate).startsWith("1900") ? String(data.startDate) : undefined}
                   value={
                     form.transaction_date
                   }
@@ -847,40 +593,40 @@ export default function CaixaTestePage() {
         {data && !loading && (
           <>
             {/* CARDS */}
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
 
-              <div className="rounded-xl border bg-white p-5 shadow">
+              <div className="rounded-xl border bg-white p-2.5 shadow-sm sm:p-3">
 
-                <div className="text-xs font-semibold uppercase text-slate-500">
+                <div className="text-[11px] sm:text-xs font-semibold uppercase text-slate-500">
                   Saldo atual
                 </div>
 
-                <div className="mt-2 text-3xl font-bold">
+                <div className="mt-1 text-sm sm:text-xl font-bold">
                   {brl(data.currentBalance)}
                 </div>
 
               </div>
 
-              <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+              <div className="rounded-xl border border-green-200 bg-green-50 p-2.5 sm:p-3">
 
-                <div className="text-xs font-semibold uppercase text-green-700">
+                <div className="text-[11px] sm:text-xs font-semibold uppercase text-green-700">
                   Entradas
                 </div>
 
-                <div className="mt-2 text-3xl font-bold text-green-700">
-                  {brl(data.weeklyEntries)}
+                <div className="mt-1 text-sm sm:text-xl font-bold text-green-700">
+                  {brl(data.totalEntries)}
                 </div>
 
               </div>
 
-              <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+              <div className="rounded-xl border border-red-200 bg-red-50 p-2.5 sm:p-3">
 
-                <div className="text-xs font-semibold uppercase text-red-700">
+                <div className="text-[11px] sm:text-xs font-semibold uppercase text-red-700">
                   Saídas
                 </div>
 
-                <div className="mt-2 text-3xl font-bold text-red-700">
-                  {brl(data.weeklyExits)}
+                <div className="mt-1 text-sm sm:text-xl font-bold text-red-700">
+                  {brl(data.totalExits)}
                 </div>
 
               </div>
@@ -888,123 +634,236 @@ export default function CaixaTestePage() {
             </div>
 
             {/* RESUMO */}
-            <section className="mt-5 rounded-xl border bg-white p-5 shadow">
+            <section className="mt-3 rounded-xl border bg-white p-3 shadow-sm sm:p-4">
 
-              <h2 className="text-xl font-bold">
+              <h2 className="text-base font-bold sm:text-lg">
                 Resumo do Caixa
               </h2>
 
               <p className="mb-4 text-sm text-slate-500">
-                Semana: {data.weekStart} até{" "}
-                {data.weekEnd}
+                Contando desde {dataBR(data.startDate)}
+                {data.weekEnd
+                  ? ` · último fechamento: ${dataBR(data.weekStart)} a ${dataBR(data.weekEnd)}`
+                  : ""}
               </p>
 
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
 
-                <div className="rounded-lg bg-slate-50 p-4">
+                <div className="rounded-lg bg-slate-50 p-2.5 text-xs sm:text-sm">
                   <b>Saldo inicial</b>
 
-                  <div className="text-xl">
+                  <div className="text-sm font-semibold sm:text-base">
                     {brl(
                       data.initialBalance
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-green-50 p-4">
+                <div className="rounded-lg bg-green-50 p-2.5 text-xs sm:text-sm">
                   <b>
-                    Recebimentos dos eventos
+                    Restante recebido dos eventos
                   </b>
 
-                  <div className="text-xl text-green-700">
+                  <div className="text-sm font-semibold sm:text-base text-green-700">
                     {brl(
-                      data.eventWeekEntries
+                      data.eventEntries
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-green-50 p-4">
+                <div className="rounded-lg bg-green-50 p-2.5 text-xs sm:text-sm">
                   <b>
-                    Sinais de eventos futuros
+                    Sinais recebidos
                   </b>
 
-                  <div className="text-xl text-green-700">
+                  <div className="text-sm font-semibold sm:text-base text-green-700">
                     {brl(
-                      data.futureSignalsTotal
+                      data.signalsTotal
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-green-50 p-4">
+                <div className="rounded-lg bg-green-50 p-2.5 text-xs sm:text-sm">
                   <b>
                     Entradas manuais
                   </b>
 
-                  <div className="text-xl text-green-700">
+                  <div className="text-sm font-semibold sm:text-base text-green-700">
                     {brl(
                       data.manualEntries
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-red-50 p-4">
+                <div className="rounded-lg bg-red-50 p-2.5 text-xs sm:text-sm">
                   <b>
                     Músicos pagos
                   </b>
 
-                  <div className="text-xl text-red-700">
+                  <div className="text-sm font-semibold sm:text-base text-red-700">
                     {brl(
                       data.musiciansPaid
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-red-50 p-4">
+                <div className="rounded-lg bg-red-50 p-2.5 text-xs sm:text-sm">
                   <b>
                     Rodrigo + Marlon
                   </b>
 
-                  <div className="text-xl text-red-700">
+                  <div className="text-sm font-semibold sm:text-base text-red-700">
                     {brl(
                       data.partnersPaid
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-red-50 p-4">
+                <div className="rounded-lg bg-red-50 p-2.5 text-xs sm:text-sm">
                   <b>
                     Despesas pagas
                   </b>
 
-                  <div className="text-xl text-red-700">
+                  <div className="text-sm font-semibold sm:text-base text-red-700">
                     {brl(
                       data.expensesPaid
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-red-50 p-4">
+                <div className="rounded-lg bg-red-50 p-2.5 text-xs sm:text-sm">
+                  <b>Bonificações pagas</b>
+
+                  <div className="text-sm font-semibold sm:text-base text-red-700">
+                    {brl(data.bonusesPaid)}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-red-50 p-2.5 text-xs sm:text-sm">
                   <b>
                     Saídas manuais
                   </b>
 
-                  <div className="text-xl text-red-700">
+                  <div className="text-sm font-semibold sm:text-base text-red-700">
                     {brl(
                       data.manualExits
                     )}
                   </div>
                 </div>
 
+                <div className="col-span-2 rounded-lg bg-amber-50 p-2.5 text-xs sm:text-sm">
+                  <b>Ajustes de saldo</b>
+                  <span className="ml-2 text-xs text-slate-500">
+                    ({data.adjustments.length}{" "}
+                    {data.adjustments.length === 1 ? "ajuste" : "ajustes"})
+                  </span>
+
+                  <div
+                    className={`text-sm font-semibold sm:text-base ${
+                      data.adjustmentsTotal >= 0 ? "text-green-700" : "text-red-700"
+                    }`}
+                  >
+                    {data.adjustmentsTotal >= 0 ? "+" : "−"}
+                    {brl(Math.abs(data.adjustmentsTotal))}
+                  </div>
+                </div>
+
+              </div>
+            </section>
+
+            {/* HISTÓRICO DE AJUSTES */}
+            <section className="mt-3 rounded-xl border border-amber-200 bg-white p-3 shadow-sm sm:p-4">
+              <h2 className="text-base font-bold sm:text-lg">Histórico de ajustes de saldo</h2>
+              <p className="text-sm text-slate-500">
+                Toda alteração no saldo do caixa fica registrada aqui, com data, usuário e motivo.
+              </p>
+
+              <div className="mt-4 overflow-x-auto">
+                {data.adjustments.length === 0 ? (
+                  <div className="rounded-lg bg-slate-50 p-6 text-center text-sm text-slate-500">
+                    Nenhum ajuste de saldo registrado.
+                  </div>
+                ) : (
+                  <><div className="space-y-2 md:hidden">
+                    {data.adjustments.map((a: AnyRow) => {
+                      const entrada = String(a.direction) === "entrada";
+                      return (
+                        <div key={a.id} className="rounded-lg border border-slate-200 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="text-xs text-slate-500">
+                              {dataBR(String(a.transaction_date))}
+                              {a.created_at &&
+                                ` às ${new Date(a.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
+                            </div>
+                            <div className={`font-bold ${entrada ? "text-green-700" : "text-red-700"}`}>
+                              {entrada ? "+" : "−"}
+                              {brl(a.amount)}
+                            </div>
+                          </div>
+                          <div className="mt-1 text-sm font-semibold">{a.motivo || "-"}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {brl(a.saldoAnterior)} → {brl(a.saldoNovo)}
+                          </div>
+                          <div className="mt-1 break-all text-xs text-slate-400">{a.autor || "-"}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <table className="hidden w-full text-sm md:table">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="p-3">Data</th>
+                        <th className="p-3">Usuário</th>
+                        <th className="p-3">Motivo</th>
+                        <th className="p-3 text-right">Saldo antes</th>
+                        <th className="p-3 text-right">Saldo depois</th>
+                        <th className="p-3 text-right">Ajuste</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.adjustments.map((a: AnyRow) => {
+                        const entrada = String(a.direction) === "entrada";
+                        return (
+                          <tr key={a.id} className="border-b last:border-0">
+                            <td className="p-3 whitespace-nowrap">
+                              {dataBR(String(a.transaction_date))}
+                              {a.created_at && (
+                                <span className="block text-xs text-slate-400">
+                                  {new Date(a.created_at).toLocaleTimeString("pt-BR", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3">{a.autor || "-"}</td>
+                            <td className="p-3">{a.motivo || "-"}</td>
+                            <td className="p-3 text-right">{brl(a.saldoAnterior)}</td>
+                            <td className="p-3 text-right">{brl(a.saldoNovo)}</td>
+                            <td
+                              className={`p-3 text-right font-bold ${
+                                entrada ? "text-green-700" : "text-red-700"
+                              }`}
+                            >
+                              {entrada ? "+" : "−"}
+                              {brl(a.amount)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table></>
+                )}
               </div>
             </section>
 
             {/* MOVIMENTAÇÕES */}
-            <section className="mt-5 rounded-xl border bg-white p-5 shadow">
+            <section className="mt-3 rounded-xl border bg-white p-3 shadow-sm sm:p-4">
 
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
 
                 <div>
-                  <h2 className="text-xl font-bold">
+                  <h2 className="text-base font-bold sm:text-lg">
                     Movimentações do Caixa
                   </h2>
 
@@ -1028,13 +887,42 @@ export default function CaixaTestePage() {
 
               <div className="mt-4 overflow-x-auto">
 
-                {data.manualTransactions.length ===
+                {data.manualTransactions.filter((t: AnyRow) => !ehAjusteSaldo(t.notes)).length ===
                 0 ? (
                   <div className="rounded-lg bg-slate-50 p-6 text-center text-sm text-slate-500">
                     Nenhuma movimentação manual cadastrada.
                   </div>
                 ) : (
-                  <table className="w-full text-sm">
+                  <><div className="space-y-2 md:hidden">
+                    {data.manualTransactions
+                      .filter((t: AnyRow) => !ehAjusteSaldo(t.notes))
+                      .map((item: AnyRow) => {
+                        const isEntrada = String(item.direction) === "entrada";
+                        const obs = String(item.notes || "")
+                          .replace(`${MANUAL_PREFIX} | `, "")
+                          .replace(MANUAL_PREFIX, "")
+                          .trim();
+                        return (
+                          <div key={item.id} className="rounded-lg border border-slate-200 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-semibold">{item.description}</div>
+                                <div className="text-xs text-slate-500">
+                                  {dataBR(String(item.transaction_date))} ·{" "}
+                                  {isEntrada ? "Entrada" : "Saída"}
+                                </div>
+                              </div>
+                              <div className={`shrink-0 font-bold ${isEntrada ? "text-green-700" : "text-red-700"}`}>
+                                {isEntrada ? "+" : "-"}
+                                {brl(item.amount)}
+                              </div>
+                            </div>
+                            {obs && <div className="mt-1 text-xs text-slate-500">{obs}</div>}
+                          </div>
+                        );
+                      })}
+                  </div>
+                  <table className="hidden w-full text-sm md:table">
 
                     <thead>
                       <tr className="border-b text-left">
@@ -1064,7 +952,7 @@ export default function CaixaTestePage() {
 
                     <tbody>
 
-                      {data.manualTransactions.map(
+                      {data.manualTransactions.filter((t: AnyRow) => !ehAjusteSaldo(t.notes)).map(
                         (item: AnyRow) => {
 
                           const isEntrada =
@@ -1152,86 +1040,66 @@ export default function CaixaTestePage() {
                       )}
 
                     </tbody>
-                  </table>
+                  </table></>
                 )}
 
               </div>
             </section>
 
             {/* EVENTOS */}
-            <section className="mt-5 rounded-xl border bg-white p-5 shadow">
+            <section className="mt-3 rounded-xl border bg-white p-3 shadow-sm sm:p-4">
 
-              <h2 className="text-xl font-bold">
-                Eventos da semana
-              </h2>
+              <h2 className="text-base font-bold sm:text-lg">Recebimentos de eventos</h2>
+              <p className="text-sm text-slate-500">
+                Valores realmente recebidos desde {dataBR(data.startDate)}. O sinal
+                entra na data em que foi pago; o restante, na data em que foi recebido.
+              </p>
 
               <div className="mt-3 overflow-x-auto">
-
-                <table className="w-full text-sm">
-
-                  <thead>
-                    <tr className="border-b text-left">
-
-                      <th className="p-2">
-                        Evento
-                      </th>
-
-                      <th className="p-2">
-                        Recebido
-                      </th>
-
-                      <th className="p-2">
-                        Sinal abatido
-                      </th>
-
-                      <th className="p-2">
-                        Entra no caixa
-                      </th>
-
-                    </tr>
-                  </thead>
-
-                  <tbody>
-
-                    {data.eventBreakdown.map(
-                      (
-                        e: AnyRow,
-                        i: number
-                      ) => (
-                        <tr
-                          key={`${e.event}-${e.date}-${i}`}
-                          className="border-b"
-                        >
-
-                          <td className="p-2">
-                            {e.event}
-                          </td>
-
-                          <td className="p-2">
-                            {brl(
-                              e.received
-                            )}
-                          </td>
-
-                          <td className="p-2">
-                            {brl(
-                              e.oldSignals
-                            )}
-                          </td>
-
-                          <td className="p-2 font-bold text-green-700">
-                            {brl(
-                              e.entersNow
-                            )}
-                          </td>
-
+                {data.eventBreakdown.length === 0 ? (
+                  <div className="rounded-lg bg-slate-50 p-6 text-center text-sm text-slate-500">
+                    Nenhum recebimento de evento neste período.
+                  </div>
+                ) : (
+                  <><div className="space-y-2 md:hidden">
+                    {data.eventBreakdown.map((e: AnyRow, i: number) => (
+                      <div key={`m-${e.event}-${e.date}-${i}`} className="rounded-lg border border-slate-200 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-semibold">{e.event}</div>
+                            <div className="text-xs text-slate-500">{dataBR(String(e.date || ""))}</div>
+                          </div>
+                          <div className="shrink-0 font-bold text-green-700">{brl(e.received)}</div>
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          Sinal {brl(e.signals)} · Restante {brl(e.rest)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <table className="hidden w-full text-sm md:table">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="p-2">Evento</th>
+                        <th className="p-2">Data</th>
+                        <th className="p-2 text-right">Sinal</th>
+                        <th className="p-2 text-right">Restante</th>
+                        <th className="p-2 text-right">Entrou no caixa</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.eventBreakdown.map((e: AnyRow, i: number) => (
+                        <tr key={`${e.event}-${e.date}-${i}`} className="border-b">
+                          <td className="p-2">{e.event}</td>
+                          <td className="p-2">{dataBR(String(e.date || ""))}</td>
+                          <td className="p-2 text-right">{brl(e.signals)}</td>
+                          <td className="p-2 text-right">{brl(e.rest)}</td>
+                          <td className="p-2 text-right font-bold text-green-700">{brl(e.received)}</td>
                         </tr>
-                      )
-                    )}
-
-                  </tbody>
-                </table>
-
+                      ))}
+                    </tbody>
+                  </table></>
+                )}
               </div>
             </section>
           </>

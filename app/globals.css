@@ -12,17 +12,46 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+ * O sistema é todo desenhado em tema claro. Mesmo com o celular em modo
+ * escuro, mantemos as cores claras para os textos e campos não ficarem
+ * claros sobre fundo branco (ilegíveis).
+ */
+:root {
+  color-scheme: light;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/*
+ * Campos de formulário sempre legíveis.
+ * Fica na camada "base" para que as classes do Tailwind de cada
+ * tela (bg-*, text-*) continuem tendo prioridade.
+ */
+@layer base {
+  input,
+  select,
+  textarea {
+    color: #0f172a;
+    background-color: #ffffff;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #64748b;
+    opacity: 1;
+  }
+
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    color: #475569;
+    background-color: #f1f5f9;
+  }
 }
 @media (max-width: 767px) {
   .eventos-table {

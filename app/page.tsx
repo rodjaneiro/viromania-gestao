@@ -6,13 +6,12 @@ import { supabase } from "@/lib/supabase";
 
 const modulos = [
   { href: "/eventos", titulo: "Eventos", descricao: "Shows e agenda", icon: "📅" },
-  { href: "/fechamento", titulo: "Fechamento", descricao: "Fechamento de eventos", icon: "✓" },
+  { href: "/fechamento", titulo: "Fechamentos", descricao: "Fechamento de eventos", icon: "✓" },
   { href: "/pagamentos", titulo: "Pagamentos", descricao: "Músicos e sócios", icon: "💰" },
   { href: "/caixa", titulo: "Caixa", descricao: "Entradas e saídas", icon: "▣" },
-  { href: "/relatorios", titulo: "Relatórios", descricao: "Resultados e estatísticas", icon: "▥" },
-  { href: "/bonificacoes", titulo: "Bonificação", descricao: "Controle de benefícios", icon: "★" },
   { href: "/musicos", titulo: "Músicos", descricao: "Cadastro e controle", icon: "♟" },
-  { href: "/instrumentos", titulo: "Instrumentos", descricao: "Controle de equipamentos", icon: "♪" },
+  { href: "/bonificacoes", titulo: "Bonificação", descricao: "Controle de benefícios", icon: "★" },
+  { href: "/relatorios", titulo: "Relatórios", descricao: "Resultados e estatísticas", icon: "▥" },
 ];
 
 export default function Home() {

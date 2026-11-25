@@ -5,6 +5,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { supabase } from "@/lib/supabase";
+import { calcularCaixa, semDuplicadosAutomaticos } from "@/lib/caixa";
+import { inicioDaSemana, fimDaSemana, semanaParaFechar, diaAnteriorISO } from "@/lib/semana";
+import { ajustesDaPessoa, somaAjustes, detalharPagamento } from "@/lib/despesas";
+import { bonificacoesDaSemana, nomeDoMes, type BonusDaSemana } from "@/lib/bonus";
 
 
 
@@ -107,13 +111,11 @@ type ReceitaEvento = {
 
 
 type DespesaEvento = {
-
   id: string;
-
   event_id: string;
-
+  description: string;
   amount: number;
-
+  notes: string | null;
 };
 
 
@@ -139,21 +141,19 @@ type Lancamento = {
 
 
 type PagamentoMusico = {
-
   musician_id: string;
-
   nome: string;
-
   eventos: number;
-
   total: number;
-
   pago: number;
-
   pendente: number;
-
+  // cachê sem os reembolsos
+  cache: number;
+  // reembolsos de despesas (ex.: gasolina) somados ao pagamento
+  reembolsos: { descricao: string; valor: number }[];
   participacoes: Participacao[];
-
+  // bonificação do mês ainda não paga (é paga ao salvar o fechamento)
+  bonusPendente?: boolean;
 };
 
 
@@ -206,43 +206,14 @@ function dataBR(data: string | null | undefined) {
 
 
 
+// Semana de terça a segunda (ver lib/semana.ts)
 function segundaDaSemana(date: Date) {
-
-  const d = new Date(date);
-
-  const dia = d.getDay();
-
-
-
-  d.setDate(
-
-    d.getDate() + (dia === 0 ? -6 : 1 - dia)
-
-  );
-
-
-
-  return d;
-
+  return inicioDaSemana(date);
 }
-
-
 
 function domingoDaSemana(date: Date) {
-
-  const d = new Date(date);
-
-
-
-  d.setDate(d.getDate() + 6);
-
-
-
-  return d;
-
+  return fimDaSemana(date);
 }
-
-
 
 function isSignal(descricao: string) {
 
@@ -311,810 +282,16 @@ type AnyRow = Record<string, any>;
 const MANUAL_PREFIX = "MANUAL_CAIXA";
 
 async function calcularSaldoAtualCaixa() {
-
-    try {
-
-
-
-      // =========================================================
-
-      // 1) SALDO INICIAL
-
-      // =========================================================
-
-      const setupRes = await supabase
-
-        .from("cash_setup")
-
-        .select("initial_balance,start_date")
-
-        .limit(1)
-
-        .maybeSingle();
-
-
-
-      if (setupRes.error) throw setupRes.error;
-
-
-
-      const initialBalance = Number(
-
-        setupRes.data?.initial_balance || 0
-
-      );
-
-
-
-      const startDate = String(
-
-        setupRes.data?.start_date || "1900-01-01"
-
-      );
-
-
-
-      // =========================================================
-
-      // 2) ÚLTIMO FECHAMENTO
-
-      // =========================================================
-
-      const closingRes = await supabase
-
-        .from("weekly_closings")
-
-        .select(
-
-          "id,week_start,week_end,rodrigo_amount,marlon_amount,rodrigo_paid,marlon_paid,rodrigo_payment_date,marlon_payment_date"
-
-        )
-
-        .order("week_end", { ascending: false })
-
-        .limit(1)
-
-        .maybeSingle();
-
-
-
-      if (closingRes.error) throw closingRes.error;
-
-
-
-      const closing = closingRes.data as AnyRow | null;
-
-
-
-      if (!closing) {
-
-        throw new Error(
-
-          "Não encontrei nenhum fechamento semanal."
-
-        );
-
-      }
-
-
-
-      const weekStart = String(closing.week_start);
-
-      const weekEnd = String(closing.week_end);
-
-
-
-      // =========================================================
-
-      // 3) EVENTOS DA SEMANA
-
-      // =========================================================
-
-      const eventsRes = await supabase
-
-        .from("events")
-
-        .select("id,name,event_date,status")
-
-        .gte("event_date", weekStart)
-
-        .lte("event_date", weekEnd)
-
-        .eq("status", "realizado")
-
-        .order("event_date");
-
-
-
-      if (eventsRes.error) throw eventsRes.error;
-
-
-
-      const events = (eventsRes.data || []) as AnyRow[];
-
-
-
-      const eventIds = events.map((e) => String(e.id));
-
-
-
-      // =========================================================
-
-      // 4) RECEITAS DOS EVENTOS
-
-      // =========================================================
-
-      let revenues: AnyRow[] = [];
-
-
-
-      if (eventIds.length) {
-
-        const revenuesRes = await supabase
-
-          .from("event_revenues")
-
-          .select(
-
-            "id,event_id,expected_amount,actual_amount,confirmed,status"
-
-          )
-
-          .in("event_id", eventIds);
-
-
-
-        if (revenuesRes.error) {
-
-          throw revenuesRes.error;
-
-        }
-
-
-
-        revenues = (revenuesRes.data || []) as AnyRow[];
-
-      }
-
-
-
-      // =========================================================
-
-      // 5) TODOS OS RECEBIMENTOS
-
-      // =========================================================
-
-      const receiptsRes = await supabase
-
-        .from("event_revenue_receipts")
-
-        .select(
-
-          "id,event_revenue_id,description,actual_amount,actual_receipt_date,status"
-
-        )
-
-        .eq("status", "recebido");
-
-
-
-      if (receiptsRes.error) {
-
-        throw receiptsRes.error;
-
-      }
-
-
-
-      const receipts = (receiptsRes.data || []) as AnyRow[];
-
-
-
-      // =========================================================
-
-      // 6) ENTRADAS DOS EVENTOS DA SEMANA
-
-      // =========================================================
-
-      let eventWeekEntries = 0;
-
-
-
-      const eventBreakdown: AnyRow[] = [];
-
-
-
-      for (const event of events) {
-
-        const eventRevenueIds = revenues
-
-          .filter(
-
-            (r) =>
-
-              String(r.event_id) === String(event.id)
-
-          )
-
-          .map((r) => String(r.id));
-
-
-
-        const eventReceipts = receipts.filter((r) =>
-
-          eventRevenueIds.includes(
-
-            String(r.event_revenue_id)
-
-          )
-
-        );
-
-
-
-        const received = eventReceipts.reduce(
-
-          (sum, r) =>
-
-            sum + Number(r.actual_amount || 0),
-
-          0
-
-        );
-
-
-
-        const oldSignals = eventReceipts
-
-          .filter((r) =>
-
-            isSignal(
-
-              String(r.description || "")
-
-            )
-
-          )
-
-          .reduce(
-
-            (sum, r) =>
-
-              sum + Number(r.actual_amount || 0),
-
-            0
-
-          );
-
-
-
-        const entersNow = Math.max(
-
-          received - oldSignals,
-
-          0
-
-        );
-
-
-
-        eventWeekEntries += entersNow;
-
-
-
-        eventBreakdown.push({
-
-          event: event.name,
-
-          date: event.event_date,
-
-          received,
-
-          oldSignals,
-
-          entersNow,
-
-        });
-
-      }
-
-
-
-      // =========================================================
-
-      // 7) SINAIS DE EVENTOS FUTUROS
-
-      // =========================================================
-
-      const allRevenuesRes = await supabase
-
-        .from("event_revenues")
-
-        .select("id,event_id");
-
-
-
-      if (allRevenuesRes.error) {
-
-        throw allRevenuesRes.error;
-
-      }
-
-
-
-      const allRevenues =
-
-        (allRevenuesRes.data || []) as AnyRow[];
-
-
-
-      const allEventIds = [
-
-        ...new Set(
-
-          allRevenues.map((r) =>
-
-            String(r.event_id)
-
-          )
-
-        ),
-
-      ];
-
-
-
-      let futureEvents: AnyRow[] = [];
-
-
-
-      if (allEventIds.length) {
-
-        const futureEventsRes = await supabase
-
-          .from("events")
-
-          .select("id,name,event_date,status")
-
-          .in("id", allEventIds)
-
-          .gt("event_date", weekEnd);
-
-
-
-        if (futureEventsRes.error) {
-
-          throw futureEventsRes.error;
-
-        }
-
-
-
-        futureEvents =
-
-          (futureEventsRes.data || []) as AnyRow[];
-
-      }
-
-
-
-      const futureEventIds = new Set(
-
-        futureEvents.map((e) => String(e.id))
-
-      );
-
-
-
-      const futureRevenueIds = new Set(
-
-        allRevenues
-
-          .filter((r) =>
-
-            futureEventIds.has(
-
-              String(r.event_id)
-
-            )
-
-          )
-
-          .map((r) => String(r.id))
-
-      );
-
-
-
-      const futureSignals = receipts.filter(
-
-        (r) =>
-
-          futureRevenueIds.has(
-
-            String(r.event_revenue_id)
-
-          ) &&
-
-          isSignal(
-
-            String(r.description || "")
-
-          ) &&
-
-          !!r.actual_receipt_date &&
-
-          String(r.actual_receipt_date) >=
-
-            startDate &&
-
-          String(r.actual_receipt_date) <=
-
-            weekEnd
-
-      );
-
-
-
-      const futureSignalsTotal =
-
-        futureSignals.reduce(
-
-          (sum, r) =>
-
-            sum + Number(r.actual_amount || 0),
-
-          0
-
-        );
-
-
-
-      // =========================================================
-
-      // 8) PAGAMENTOS DOS MÚSICOS
-
-      // =========================================================
-
-      const musicianPaymentsRes = await supabase
-
-        .from("event_musicians")
-
-        .select(
-
-          "event_cache,payment_status,payment_date,event_id"
-
-        )
-
-        .eq("payment_status", "pago")
-
-        .not("payment_date", "is", null);
-
-
-
-      if (musicianPaymentsRes.error) {
-
-        throw musicianPaymentsRes.error;
-
-      }
-
-
-
-      const musicianPayments =
-
-        (musicianPaymentsRes.data || []) as AnyRow[];
-
-
-
-      const musiciansPaid = musicianPayments
-
-        .filter(
-
-          (p) =>
-
-            String(p.payment_date) >=
-
-            startDate
-
-        )
-
-        .reduce(
-
-          (sum, p) =>
-
-            sum + Number(p.event_cache || 0),
-
-          0
-
-        );
-
-
-
-      // =========================================================
-
-      // 9) SÓCIOS PAGOS
-
-      // =========================================================
-
-      const rodrigoPaid =
-
-        Boolean(closing.rodrigo_paid) &&
-
-        String(
-
-          closing.rodrigo_payment_date || ""
-
-        ) >= startDate
-
-          ? Number(
-
-              closing.rodrigo_amount || 0
-
-            )
-
-          : 0;
-
-
-
-      const marlonPaid =
-
-        Boolean(closing.marlon_paid) &&
-
-        String(
-
-          closing.marlon_payment_date || ""
-
-        ) >= startDate
-
-          ? Number(
-
-              closing.marlon_amount || 0
-
-            )
-
-          : 0;
-
-
-
-      const partnersPaid =
-
-        rodrigoPaid + marlonPaid;
-
-
-
-      // =========================================================
-
-      // 10) DESPESAS PAGAS
-
-      // =========================================================
-
-      const expensesRes = await supabase
-
-        .from("event_expenses")
-
-        .select("amount,payment_date")
-
-        .not("payment_date", "is", null);
-
-
-
-      if (expensesRes.error) {
-
-        throw expensesRes.error;
-
-      }
-
-
-
-      const expensesPaid = (
-
-        expensesRes.data || []
-
-      )
-
-        .filter(
-
-          (d: AnyRow) =>
-
-            String(d.payment_date) >=
-
-            startDate
-
-        )
-
-        .reduce(
-
-          (sum, d) =>
-
-            sum + Number(d.amount || 0),
-
-          0
-
-        );
-
-
-
-      // =========================================================
-
-      // 11) MOVIMENTAÇÕES MANUAIS
-
-      //
-
-      // Usamos transaction_type = "receita" porque esse
-
-      // é um tipo aceito pela tabela atual.
-
-      //
-
-      // Para não misturar com receitas automáticas,
-
-      // usamos o prefixo MANUAL_CAIXA nas observações.
-
-      // =========================================================
-
-      const manualRes = await supabase
-
-        .from("cash_transactions")
-
-        .select(
-
-          "id,transaction_date,description,transaction_type,amount,direction,notes,created_at"
-
-        )
-
-        .eq("transaction_type", "receita")
-
-        .is("event_id", null)
-
-        .is("musician_id", null)
-
-        .gte("transaction_date", startDate)
-
-        .order("transaction_date", {
-
-          ascending: false,
-
-        })
-
-        .order("created_at", {
-
-          ascending: false,
-
-        });
-
-
-
-      if (manualRes.error) {
-
-        throw manualRes.error;
-
-      }
-
-
-
-      const allPossibleManual =
-
-        (manualRes.data || []) as AnyRow[];
-
-
-
-      const manualTransactions =
-
-        allPossibleManual.filter((t) =>
-
-          String(t.notes || "").startsWith(
-
-            MANUAL_PREFIX
-
-          )
-
-        );
-
-
-
-      const manualEntries =
-
-        manualTransactions
-
-          .filter(
-
-            (t) =>
-
-              String(t.direction) ===
-
-              "entrada"
-
-          )
-
-          .reduce(
-
-            (sum, t) =>
-
-              sum + Number(t.amount || 0),
-
-            0
-
-          );
-
-
-
-      const manualExits =
-
-        manualTransactions
-
-          .filter(
-
-            (t) =>
-
-              String(t.direction) ===
-
-              "saida"
-
-          )
-
-          .reduce(
-
-            (sum, t) =>
-
-              sum + Number(t.amount || 0),
-
-            0
-
-          );
-
-
-
-      // =========================================================
-
-      // 12) TOTAL DO CAIXA
-
-      // =========================================================
-
-      const weeklyEntries =
-
-        eventWeekEntries +
-
-        futureSignalsTotal +
-
-        manualEntries;
-
-
-
-      const weeklyExits =
-
-        musiciansPaid +
-
-        partnersPaid +
-
-        expensesPaid +
-
-        manualExits;
-
-
-
-      const currentBalance =
-
-        initialBalance +
-
-        weeklyEntries -
-
-        weeklyExits;
-
-
-
-      return currentBalance;
-
-    } catch (e: any) {
-      console.error(e);
-      throw e;
-    }
-  }
+  // Mesmo cálculo da aba Caixa (lib/caixa.ts)
+  const resultado = await calcularCaixa();
+  return resultado.currentBalance;
+}
 
 export default function PagamentosPage() {
 
   const [semanaReferencia, setSemanaReferencia] =
 
-    useState(dataISO(new Date()));
+    useState(() => semanaParaFechar());
 
 
 
@@ -1153,6 +330,32 @@ export default function PagamentosPage() {
     useState<ReceitaEvento[]>([]);
 
 
+
+  // Bonificação mensal paga nesta semana (última semana do mês)
+  const [bonusSemana, setBonusSemana] = useState<BonusDaSemana[]>([]);
+
+  // Chave PIX de cada músico (cadastro de músicos)
+  const [pixPorMusico, setPixPorMusico] = useState<Record<string, string>>({});
+  const [pixCopiado, setPixCopiado] = useState<string | null>(null);
+
+  async function copiarPix(musicianId: string, chave: string) {
+    try {
+      await navigator.clipboard.writeText(chave);
+    } catch {
+      // Navegadores sem acesso à área de transferência
+      const campo = document.createElement("textarea");
+      campo.value = chave;
+      document.body.appendChild(campo);
+      campo.select();
+      document.execCommand("copy");
+      document.body.removeChild(campo);
+    }
+    setPixCopiado(musicianId);
+    window.setTimeout(
+      () => setPixCopiado((atual) => (atual === musicianId ? null : atual)),
+      2000
+    );
+  }
 
   const [despesasEventos, setDespesasEventos] =
 
@@ -1350,22 +553,11 @@ export default function PagamentosPage() {
 
           )
 
-          .eq(
-
-            "week_start",
-
-            semanaInicio
-
-          )
-
-          .eq(
-
-            "week_end",
-
-            semanaFim
-
-          )
-
+          // Fechamento desta semana (terça a segunda) ou o antigo
+          // equivalente, que começava na segunda-feira anterior
+          .in("week_start", [semanaInicio, diaAnteriorISO(semanaInicio)])
+          .order("week_start", { ascending: false })
+          .limit(1)
           .maybeSingle(),
 
 
@@ -1416,7 +608,7 @@ export default function PagamentosPage() {
 
           .select(
 
-            "event_revenue_id,description,actual_amount,actual_receipt_date,status"
+            "event_revenue_id,description,actual_amount,actual_receipt_date,status,notes"
 
           )
 
@@ -1735,7 +927,7 @@ export default function PagamentosPage() {
 
       setRecebimentos(
 
-        (recibosRes.data || []).map(
+        semDuplicadosAutomaticos((recibosRes.data || []) as any[]).map(
 
           (r: any) => ({
 
@@ -2015,7 +1207,7 @@ export default function PagamentosPage() {
 
             .select(
 
-              "id,event_id,amount"
+              "id,event_id,description,amount,notes"
 
             )
 
@@ -2055,6 +1247,8 @@ export default function PagamentosPage() {
 
               ),
 
+            description: String(d.description || "Despesa"),
+            notes: d.notes || null,
             amount:
 
               Number(
@@ -2076,6 +1270,18 @@ export default function PagamentosPage() {
       }
 
 
+
+      setBonusSemana(await bonificacoesDaSemana(semanaInicio, semanaFim));
+
+      const { data: pixData, error: pixError } = await supabase
+        .from("musicians")
+        .select("id,pix");
+      if (pixError) throw pixError;
+      setPixPorMusico(
+        Object.fromEntries(
+          (pixData || []).map((m: any) => [String(m.id), String(m.pix || "").trim()])
+        )
+      );
 
       setParticipacoes(
 
@@ -2170,124 +1376,75 @@ export default function PagamentosPage() {
 
 
   const pagamentosMusicos =
-
-    useMemo<
-
-      PagamentoMusico[]
-
-    >(() => {
-
-      const mapa =
-
-        new Map<
-
-          string,
-
-          PagamentoMusico
-
-        >();
-
-
+    useMemo<PagamentoMusico[]>(() => {
+      const mapa = new Map<string, PagamentoMusico>();
 
       for (const p of participacoes) {
-
-        const atual =
-
-          mapa.get(
-
-            p.musician_id
-
-          ) || {
-
-            musician_id:
-
-              p.musician_id,
-
-            nome:
-
-              p.musician_name,
-
-            eventos: 0,
-
-            total: 0,
-
-            pago: 0,
-
-            pendente: 0,
-
-            participacoes: [],
-
-          };
-
-
+        const atual = mapa.get(p.musician_id) || {
+          musician_id: p.musician_id,
+          nome: p.musician_name,
+          eventos: 0,
+          total: 0,
+          pago: 0,
+          pendente: 0,
+          cache: 0,
+          reembolsos: [],
+          participacoes: [],
+          bonusPendente: false,
+        };
 
         atual.eventos += 1;
+        atual.cache += p.event_cache;
+        atual.total += p.event_cache;
+        atual.participacoes.push(p);
 
-        atual.total +=
+        if (p.payment_status === "pago") atual.pago += p.event_cache;
+        else atual.pendente += p.event_cache;
 
-          p.event_cache;
-
-
-
-        atual.participacoes.push(
-
-          p
-
-        );
-
-
-
-        if (
-
-          p.payment_status ===
-
-          "pago"
-
-        ) {
-
-          atual.pago +=
-
-            p.event_cache;
-
-        } else {
-
-          atual.pendente +=
-
-            p.event_cache;
-
-        }
-
-
-
-        mapa.set(
-
-          p.musician_id,
-
-          atual
-
-        );
-
+        mapa.set(p.musician_id, atual);
       }
 
+      // Bonificação do mês: quem ganhou recebe nesta semana, mesmo sem ter
+      // tocado nela.
+      for (const b of bonusSemana) {
+        if (!mapa.has(b.musician_id)) {
+          mapa.set(b.musician_id, {
+            musician_id: b.musician_id,
+            nome: b.nome,
+            eventos: 0,
+            total: 0,
+            pago: 0,
+            pendente: 0,
+            cache: 0,
+            reembolsos: [],
+            participacoes: [],
+            bonusPendente: false,
+          });
+        }
+      }
 
+      // Reembolsos (+), descontos (−) e bonificação entram no pagamento
+      // junto com o cachê.
+      for (const item of mapa.values()) {
+        const bonus = bonusSemana
+          .filter((b) => b.musician_id === item.musician_id)
+          .map((b) => ({ descricao: `Bonificação de ${nomeDoMes(b.mes)}`, valor: b.valor }));
 
-      return [
+        item.bonusPendente = bonusSemana.some(
+          (b) => b.musician_id === item.musician_id && !b.paid
+        );
 
-        ...mapa.values(),
+        item.reembolsos = [...ajustesDaPessoa(despesasEventos, item.musician_id), ...bonus];
+        const ajuste = somaAjustes(item.reembolsos);
+        item.total += ajuste;
+        if (item.pendente > 0 || item.bonusPendente) item.pendente += ajuste;
+        else item.pago += ajuste;
+      }
 
-      ].sort((a, b) =>
-
-        a.nome.localeCompare(
-
-          b.nome,
-
-          "pt-BR"
-
-        )
-
+      return [...mapa.values()].sort((a, b) =>
+        a.nome.localeCompare(b.nome, "pt-BR")
       );
-
-    }, [participacoes]);
+    }, [participacoes, despesasEventos, bonusSemana]);
 
 
 
@@ -2589,7 +1746,7 @@ export default function PagamentosPage() {
 
     if (
 
-      item.pendente <= 0 ||
+      !item.participacoes.some((p) => p.payment_status !== "pago") ||
 
       pagando
 
@@ -2925,7 +2082,7 @@ export default function PagamentosPage() {
 
       <div className="mx-auto max-w-7xl">
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
 
           <div>
 
@@ -2937,7 +2094,7 @@ export default function PagamentosPage() {
 
 
 
-            <h1 className="mt-1 text-3xl font-extrabold">
+            <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold">
 
               Pagamentos
 
@@ -2997,9 +2154,9 @@ export default function PagamentosPage() {
 
 
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
 
-          <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
 
             <div>
 
@@ -3011,7 +2168,7 @@ export default function PagamentosPage() {
 
 
 
-              <p className="mt-1 text-2xl font-extrabold">
+              <p className="mt-1 text-lg sm:text-xl font-extrabold">
 
                 {dataBR(
 
@@ -3035,7 +2192,7 @@ export default function PagamentosPage() {
 
             <div
 
-              className={`rounded-full px-4 py-2 text-sm font-bold ${
+              className={`rounded-full px-3 py-1 text-xs font-bold ${
 
                 fechamento
 
@@ -3097,47 +2254,35 @@ export default function PagamentosPage() {
 
           <>
 
-            <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <section className="mb-4 grid grid-cols-3 gap-2 sm:gap-3">
 
-              <div className="rounded-xl border border-purple-200 bg-purple-50 p-5">
+              <div className="rounded-xl border border-purple-200 bg-purple-50 p-2.5 sm:p-3">
 
-                <p className="text-sm font-semibold text-purple-700">
+                <p className="text-[11px] font-semibold leading-tight text-purple-700 sm:text-xs">
 
-                  Pagamento dos músicos da semana
-
-                </p>
-
-
-
-                <p className="mt-2 text-2xl font-extrabold text-purple-900">
-
-                  {moeda(
-
-                    totalPendenteMusicos
-
-                  )}
+                  Músicos da semana
 
                 </p>
 
 
 
-                <p className="mt-1 text-xs text-purple-700">
-
-                  Total:{" "}
+                <p className="mt-1 text-sm sm:text-lg font-extrabold text-purple-900">
 
                   {moeda(
 
                     totalMusicos
 
-                  )}{" "}
-
-                  • Já pago:{" "}
-
-                  {moeda(
-
-                    totalPagoMusicos
-
                   )}
+
+                </p>
+
+
+
+                <p className="mt-0.5 hidden text-[11px] leading-tight text-purple-700 sm:block">
+
+                  {totalPendenteMusicos > 0
+                    ? "Pago automaticamente ao salvar o fechamento"
+                    : "✓ Pago no fechamento"}
 
                 </p>
 
@@ -3145,17 +2290,17 @@ export default function PagamentosPage() {
 
 
 
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 sm:p-3">
 
-                <p className="text-sm font-semibold text-emerald-700">
+                <p className="text-[11px] font-semibold leading-tight text-emerald-700 sm:text-xs">
 
-                  Valor que entrou no caixa na semana
+                  Entrou no caixa
 
                 </p>
 
 
 
-                <p className="mt-2 text-2xl font-extrabold text-emerald-900">
+                <p className="mt-1 text-sm sm:text-lg font-extrabold text-emerald-900">
 
                   {moeda(
 
@@ -3167,7 +2312,7 @@ export default function PagamentosPage() {
 
 
 
-                <p className="mt-1 text-xs text-emerald-700">
+                <p className="mt-0.5 hidden text-[11px] leading-tight text-emerald-700 sm:block">
 
                   Eventos realizados da semana − sinais já recebidos desses próprios eventos
 
@@ -3177,17 +2322,17 @@ export default function PagamentosPage() {
 
 
 
-              <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-2.5 sm:p-3">
 
-                <p className="text-sm font-semibold text-blue-700">
+                <p className="text-[11px] font-semibold leading-tight text-blue-700 sm:text-xs">
 
-                  Valor total do caixa
+                  Saldo do caixa
 
                 </p>
 
 
 
-                <p className="mt-2 text-2xl font-extrabold text-blue-900">
+                <p className="mt-1 text-sm sm:text-lg font-extrabold text-blue-900">
 
                   {moeda(
 
@@ -3199,7 +2344,7 @@ export default function PagamentosPage() {
 
 
 
-                <p className="mt-1 text-xs text-blue-700">
+                <p className="mt-0.5 hidden text-[11px] leading-tight text-blue-700 sm:block">
 
                   Saldo atual do caixa — mesmo cálculo da página Caixa.
 
@@ -3211,11 +2356,11 @@ export default function PagamentosPage() {
 
 
 
-            <section className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <section className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
 
-              <div className="border-b border-slate-200 p-5">
+              <div className="border-b border-slate-200 p-3 sm:p-4">
 
-                <h2 className="text-xl font-extrabold">
+                <h2 className="text-base sm:text-lg font-extrabold">
 
                   Pagamentos dos músicos
 
@@ -3259,13 +2404,13 @@ export default function PagamentosPage() {
 
                         }
 
-                        className="flex flex-wrap items-center justify-between gap-4 p-5"
+                        className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 p-3 sm:items-center sm:px-4 sm:py-3"
 
                       >
 
-                        <div>
+                        <div className="min-w-0 flex-1">
 
-                          <p className="text-lg font-extrabold">
+                          <p className="text-base font-extrabold">
 
                             {item.nome}
 
@@ -3294,100 +2439,56 @@ export default function PagamentosPage() {
                             )}
 
                           </p>
+                          {item.reembolsos.length > 0 && (
+                            <p className="mt-1 text-sm font-semibold text-amber-700">
+                              {detalharPagamento(item.cache, "de cachê", item.reembolsos)}
+                            </p>
+                          )}
 
                         </div>
 
 
+
+                        {/* CHAVE PIX */}
+                        <div className="order-last w-full sm:order-none sm:w-auto sm:min-w-[220px] sm:max-w-xs sm:flex-1">
+                          <p className="text-xs font-semibold uppercase text-slate-500">
+                            Chave PIX
+                          </p>
+                          {pixPorMusico[item.musician_id] ? (
+                            <div className="mt-1 flex items-center gap-2">
+                              <span className="flex-1 truncate rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm" title={pixPorMusico[item.musician_id]}>
+                                {pixPorMusico[item.musician_id]}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => copiarPix(item.musician_id, pixPorMusico[item.musician_id])}
+                                className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold text-white ${
+                                  pixCopiado === item.musician_id ? "bg-green-600" : "bg-slate-900"
+                                }`}
+                              >
+                                {pixCopiado === item.musician_id ? "✓ Copiado" : "Copiar"}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-sm text-slate-400">
+                              Sem chave PIX cadastrada
+                            </p>
+                          )}
+                        </div>
 
                         <div className="text-right">
-
                           <p className="text-xs font-semibold uppercase text-slate-500">
-
-                            A pagar
-
+                            Valor a pagar
                           </p>
-
-
-
-                          <p className="text-xl font-extrabold">
-
-                            {moeda(
-
-                              item.pendente
-
-                            )}
-
+                          <p className="text-lg font-extrabold">
+                            {moeda(item.total)}
                           </p>
-
-
-
                           <p className="text-xs text-slate-500">
-
-                            Pago:{" "}
-
-                            {moeda(
-
-                              item.pago
-
-                            )}
-
+                            {item.participacoes.some((p) => p.payment_status !== "pago") || item.bonusPendente
+                              ? "Pago automaticamente ao salvar o fechamento"
+                              : "✓ Pago no fechamento"}
                           </p>
-
                         </div>
-
-
-
-                        {item.pendente <=
-
-                        0 ? (
-
-                          <span className="rounded-full bg-green-100 px-4 py-2 text-sm font-bold text-green-700">
-
-                            ✓ Pago
-
-                          </span>
-
-                        ) : (
-
-                          <button
-
-                            onClick={() =>
-
-                              pagarMusico(
-
-                                item
-
-                              )
-
-                            }
-
-                            disabled={
-
-                              pagando ===
-
-                              item.musician_id
-
-                            }
-
-                            className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
-
-                          >
-
-                            {pagando ===
-
-                            item.musician_id
-
-                              ? "Registrando..."
-
-                              : `Pagar ${moeda(
-
-                                  item.pendente
-
-                                )}`}
-
-                          </button>
-
-                        )}
 
                       </div>
 
@@ -3405,9 +2506,9 @@ export default function PagamentosPage() {
 
             <section className="mb-10 rounded-xl border border-slate-200 bg-white shadow-sm">
 
-              <div className="border-b border-slate-200 p-5">
+              <div className="border-b border-slate-200 p-3 sm:p-4">
 
-                <h2 className="text-xl font-extrabold">
+                <h2 className="text-base sm:text-lg font-extrabold">
 
                   Pagamentos dos sócios
 
@@ -3417,7 +2518,7 @@ export default function PagamentosPage() {
 
                 <p className="mt-1 text-sm text-slate-500">
 
-                  Rodrigo 25% e Marlon 25% do resultado da semana.
+                  Rodrigo 25% e Marlon 25% do resultado da semana, mais reembolsos de despesas (ex.: gasolina).
 
                 </p>
 
@@ -3435,7 +2536,7 @@ export default function PagamentosPage() {
 
               ) : (
 
-                <div className="grid gap-4 p-5 md:grid-cols-2">
+                <div className="grid gap-3 p-3 sm:p-4 md:grid-cols-2">
 
                   {(
 
@@ -3495,7 +2596,13 @@ export default function PagamentosPage() {
 
                         : fechamento.marlon_payment_date;
 
-
+                    // Reembolsos (+) e descontos (−) já incluídos no valor
+                    const ajustes = ajustesDaPessoa(despesasEventos, tipo);
+                    const detalhe = detalharPagamento(
+                      valor - somaAjustes(ajustes),
+                      "da semana",
+                      ajustes
+                    );
 
                     return (
 
@@ -3503,13 +2610,13 @@ export default function PagamentosPage() {
 
                         key={tipo}
 
-                        className="rounded-xl border border-slate-200 p-5"
+                        className="rounded-xl border border-slate-200 p-3 sm:p-4"
 
                       >
 
                         <div className="flex items-center justify-between gap-4">
 
-                          <p className="text-lg font-extrabold">
+                          <p className="text-base font-extrabold">
 
                             {nome}
 
@@ -3517,7 +2624,7 @@ export default function PagamentosPage() {
 
 
 
-                          <p className="text-2xl font-extrabold">
+                          <p className="text-lg font-extrabold">
 
                             {moeda(
 
@@ -3528,6 +2635,12 @@ export default function PagamentosPage() {
                           </p>
 
                         </div>
+
+                        {detalhe && (
+                          <p className="mt-1 text-right text-xs font-semibold text-amber-700">
+                            {detalhe}
+                          </p>
+                        )}
 
 
 
